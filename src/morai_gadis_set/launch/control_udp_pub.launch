@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <arg name="udp_module_root" default="" />
+
+  <arg name="ctrl_ip" default="127.0.0.1" />
+  <arg name="ctrl_port" default="9095" />  <!-- host port -->
+  <arg name="cmd_topic" default="/ctrl_cmd" />
+  <arg name="hz" default="30.0" />
+
+  <!-- EgoCtrlCmd fixed fields -->
+  <arg name="ctrl_mode" default="2" />
+  <arg name="gear" default="4" />
+  <arg name="default_cmd_type" default="2" />
+  <arg name="send_without_cmd" default="false" />
+
+  <node pkg="morai_gadis_set" type="control_udp_pub.py" name="control_udp_pub" output="screen">
+    <param name="udp_module_root" value="$(arg udp_module_root)" />
+    <param name="ctrl_ip" value="$(arg ctrl_ip)" />
+    <param name="ctrl_port" value="$(arg ctrl_port)" />
+    <param name="cmd_topic" value="$(arg cmd_topic)" />
+    <param name="hz" value="$(arg hz)" />
+    <param name="ctrl_mode" value="$(arg ctrl_mode)" />
+    <param name="gear" value="$(arg gear)" />
+    <param name="default_cmd_type" value="$(arg default_cmd_type)" />
+    <param name="send_without_cmd" value="$(arg send_without_cmd)" />
+  </node>
+</launch>

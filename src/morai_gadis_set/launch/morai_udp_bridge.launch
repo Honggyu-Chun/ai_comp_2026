@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <arg name="udp_module_root" default="" />
+
+  <!-- GPS Sensor -->
+  <arg name="gps_ip" default="127.0.0.1" />
+  <arg name="gps_port" default="11112" /> <!-- Destination Port -->
+
+  <!-- Ego Vehicle Status -->
+  <arg name="ego_ip" default="127.0.0.1" /> 
+  <arg name="ego_port" default="12346" /> <!-- Destination Port -->
+
+  <arg name="hz" default="20.0" />
+  <arg name="frame_id" default="map" />
+
+  <node pkg="morai_gadis_set" type="morai_udp_bridge.py" name="morai_udp_bridge" output="screen">
+    <param name="udp_module_root" value="$(arg udp_module_root)" />
+    <param name="gps_ip" value="$(arg gps_ip)" />
+    <param name="gps_port" value="$(arg gps_port)" />
+    <param name="ego_ip" value="$(arg ego_ip)" />
+    <param name="ego_port" value="$(arg ego_port)" />
+    <param name="hz" value="$(arg hz)" />
+    <param name="frame_id" value="$(arg frame_id)" />
+  </node>
+</launch>

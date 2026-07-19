@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+  <!-- path_maker가 저장할 파일명을 설정한다. -->
+  <arg name="path_file_name" default="test1.txt" />
+
+  <!-- ll2utm 노드의 좌표 변환 파라미터를 설정한다. -->
+  <arg name="ll2utm_gps_topic" default="/gps" />
+  <arg name="ll2utm_odom_topic" default="/gps_utm_odom" />
+  <arg name="ll2utm_map_frame_id" default="map" />
+  <arg name="ll2utm_base_frame_id" default="base_link" />
+  <arg name="ll2utm_utm_zone" default="52" />
+  <arg name="ll2utm_east_offset" default="302459.942" />
+  <arg name="ll2utm_north_offset" default="4122635.537" />
+  <arg name="ll2utm_use_msg_offset" default="false" />
+  <arg name="ll2utm_require_valid_status" default="false" />
+  <arg name="ll2utm_min_gps_status" default="0" />
+  <arg name="ll2utm_publish_rate_hz" default="50.0" />
+  <arg name="ll2utm_enable_prediction" default="true" />
+  <arg name="ll2utm_max_prediction_time_s" default="0.10" />
+  <arg name="ll2utm_gps_timeout_s" default="0.5" />
+  <arg name="ll2utm_heading_filter_alpha" default="1.0" />
+  <arg name="ll2utm_velocity_filter_alpha" default="1.0" />
+  <arg name="ll2utm_initial_heading_distance" default="0.01" />
+  <arg name="ll2utm_min_heading_distance" default="0.01" />
+  <arg name="ll2utm_min_heading_speed_mps" default="0.03" />
+  <arg name="ll2utm_enable_heading_prediction" default="true" />
+  <arg name="ll2utm_heading_prediction_time_s" default="0.10" />
+  <arg name="ll2utm_yaw_rate_filter_alpha" default="1.0" />
+  <arg name="ll2utm_max_yaw_rate_radps" default="2.5" />
+  <arg name="ll2utm_apply_gps_offset" default="true" />
+  <arg name="ll2utm_gps_offset_x" default="0.0" />
+  <arg name="ll2utm_gps_offset_y" default="0.0" />
+  <arg name="ll2utm_max_speed_mps" default="30.0" />
+
+  <!-- GPS 좌표를 UTM odometry로 변환하는 ll2utm 노드를 실행한다. -->
+  <node name="ll2utm" pkg="global_path_planner" type="ll2utm.py" respawn="true">
+    <param name="gps_topic" value="$(arg ll2utm_gps_topic)" type="str" />
+    <param name="odom_topic" value="$(arg ll2utm_odom_topic)" type="str" />
+    <param name="map_frame_id" value="$(arg ll2utm_map_frame_id)" type="str" />
+    <param name="base_frame_id" value="$(arg ll2utm_base_frame_id)" type="str" />
+    <param name="utm_zone" value="$(arg ll2utm_utm_zone)" type="int" />
+    <param name="east_offset" value="$(arg ll2utm_east_offset)" type="double" />
+    <param name="north_offset" value="$(arg ll2utm_north_offset)" type="double" />
+    <param name="use_msg_offset" value="$(arg ll2utm_use_msg_offset)" type="bool" />
+    <param name="require_valid_status" value="$(arg ll2utm_require_valid_status)" type="bool" />
+    <param name="min_gps_status" value="$(arg ll2utm_min_gps_status)" type="int" />
+    <param name="publish_rate_hz" value="$(arg ll2utm_publish_rate_hz)" type="double" />
+    <param name="enable_prediction" value="$(arg ll2utm_enable_prediction)" type="bool" />
+    <param name="max_prediction_time_s" value="$(arg ll2utm_max_prediction_time_s)" type="double" />
+    <param name="gps_timeout_s" value="$(arg ll2utm_gps_timeout_s)" type="double" />
+    <param name="heading_filter_alpha" value="$(arg ll2utm_heading_filter_alpha)" type="double" />
+    <param name="velocity_filter_alpha" value="$(arg ll2utm_velocity_filter_alpha)" type="double" />
+    <param name="initial_heading_distance" value="$(arg ll2utm_initial_heading_distance)" type="double" />
+    <param name="min_heading_distance" value="$(arg ll2utm_min_heading_distance)" type="double" />
+    <param name="min_heading_speed_mps" value="$(arg ll2utm_min_heading_speed_mps)" type="double" />
+    <param name="enable_heading_prediction" value="$(arg ll2utm_enable_heading_prediction)" type="bool" />
+    <param name="heading_prediction_time_s" value="$(arg ll2utm_heading_prediction_time_s)" type="double" />
+    <param name="yaw_rate_filter_alpha" value="$(arg ll2utm_yaw_rate_filter_alpha)" type="double" />
+    <param name="max_yaw_rate_radps" value="$(arg ll2utm_max_yaw_rate_radps)" type="double" />
+    <param name="apply_gps_offset" value="$(arg ll2utm_apply_gps_offset)" type="bool" />
+    <param name="gps_offset_x" value="$(arg ll2utm_gps_offset_x)" type="double" />
+    <param name="gps_offset_y" value="$(arg ll2utm_gps_offset_y)" type="double" />
+    <param name="max_speed_mps" value="$(arg ll2utm_max_speed_mps)" type="double" />
+  </node>
+
+  <!-- UTM odometry를 받아 경로 파일을 기록하고 종료 시 smoothing 결과를 저장한다. -->
+  <node name="path_maker" pkg="global_path_planner" type="path_maker_sm.py" output="screen">
+    <param name="file_name" value="$(arg path_file_name)" type="str" />
+  </node>
+</launch>

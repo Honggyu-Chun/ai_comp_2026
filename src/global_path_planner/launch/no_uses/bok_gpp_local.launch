@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+ <group ns="plain_map">
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find global_path_planner)/map_data/plain_map.yaml" >
+  </node>
+ </group>
+ <group ns="region_map">
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find global_path_planner)/map_data/region_bok.yaml" >
+  </node>
+ </group>
+<group ns="global_map">
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find global_path_planner)/map_data/global_bok.yaml" >
+  </node>
+ </group>
+  <node name="global_path_publisher1" pkg="global_path_planner" type="globa_path_publisher_1.py" args="bok_left_1029_sm" respawn="true" />
+  <node name="global_path_publisher2" pkg="global_path_planner" type="globa_path_publisher_2.py" args="bok_right_1029_sm" respawn="true" />
+  <node name="odom_path_publisher" pkg="global_path_planner" type="odom_path_publisher" respawn="true" />
+  <node name="local_path_selector" pkg="global_path_planner" type="local_path_selector" respawn="true" output="screen" />
+  <node name="region_state_publisher" pkg="global_path_planner"  type="region_state_publisher" respawn="true" args="bok" />
+  <!-- <node name="crosswalk" pkg="crosswalk"  type="crosswalk" respawn="true"/> -->
+</launch>

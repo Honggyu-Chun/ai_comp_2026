@@ -1,0 +1,4 @@
+int16 path_number
+float64 distance
+string obj_type
+string obj_position

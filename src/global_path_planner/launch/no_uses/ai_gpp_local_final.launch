@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+ <group ns="ai_region_map">
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find global_path_planner)/map_data/ai_region_map.yaml" >
+  </node>
+ </group>
+<group ns="global_map">
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find global_path_planner)/map_data/global_map.yaml" >
+  </node>
+ </group>
+  <node name="ai_gpsudptoros" pkg="global_path_planner" type="ai_gpsudptoros.py" respawn="true" />
+  <node name="global_path_publisher1" pkg="global_path_planner" type="globa_path_publisher_1.py" args="ai_1_251024_sm" respawn="true" />
+  <node name="global_path_publisher2" pkg="global_path_planner" type="globa_path_publisher_2.py" args="ai_2_251024_sm" respawn="true" />
+  <node name="odom_path_publisher" pkg="global_path_planner" type="odom_path_publisher" respawn="true" />
+  <!-- <node name="ai_local_path_selector" pkg="global_path_planner" type="ai_local_path_selector" respawn="true" output="screen" /> -->
+  <node name="local_path_selector" pkg="global_path_planner" type="ai_local_path_selector" respawn="true" output="screen" />
+  <node name="ai_region_state_publisher" pkg="global_path_planner"  type="ai_region_state_publisher" respawn="true" args="final" />
+</launch>

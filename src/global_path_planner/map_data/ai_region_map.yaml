@@ -1,0 +1,11 @@
+image: ai_region_final.png
+# resolution: 0.1
+# origin: [-182.4, -626.0, 0.0]
+# occupied_thresh: 0.45
+# free_thresh: 0.1
+# negate: 0
+resolution: 0.38
+origin: [-255.0, 413.0, -89.530]
+occupied_thresh: 0.45
+free_thresh: 0.1
+negate: 0

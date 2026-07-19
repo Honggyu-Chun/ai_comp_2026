@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+  <!-- ll2utm 노드의 좌표 변환 파라미터를 launch 인자로 설정한다. -->
+  <arg name="ll2utm_gps_topic" default="/gps" />
+  <arg name="ll2utm_odom_topic" default="/gps_utm_odom" />
+  <arg name="ll2utm_map_frame_id" default="map" />
+  <arg name="ll2utm_base_frame_id" default="base_link" />
+  <arg name="ll2utm_utm_zone" default="52" />
+  <arg name="ll2utm_east_offset" default="0.0" />
+  <arg name="ll2utm_north_offset" default="0.0" />
+  <arg name="ll2utm_use_msg_offset" default="false" />
+  <arg name="ll2utm_require_valid_status" default="false" />
+  <arg name="ll2utm_min_gps_status" default="0" />
+  <arg name="ll2utm_publish_rate_hz" default="50.0" />
+  <arg name="ll2utm_enable_prediction" default="true" />
+  <arg name="ll2utm_max_prediction_time_s" default="0.10" />
+  <arg name="ll2utm_gps_timeout_s" default="0.5" />
+  <arg name="ll2utm_heading_filter_alpha" default="1.0" />
+  <arg name="ll2utm_velocity_filter_alpha" default="1.0" />
+  <arg name="ll2utm_initial_heading_distance" default="0.01" />
+  <arg name="ll2utm_min_heading_distance" default="0.01" />
+  <arg name="ll2utm_min_heading_speed_mps" default="0.03" />
+  <arg name="ll2utm_enable_heading_prediction" default="true" />
+  <arg name="ll2utm_heading_prediction_time_s" default="0.10" />
+  <arg name="ll2utm_yaw_rate_filter_alpha" default="1.0" />
+  <arg name="ll2utm_max_yaw_rate_radps" default="2.5" />
+  <arg name="ll2utm_apply_gps_offset" default="true" />
+  <arg name="ll2utm_gps_offset_x" default="0.0" />
+  <arg name="ll2utm_gps_offset_y" default="0.0" />
+  <arg name="ll2utm_max_speed_mps" default="30.0" />
+  <arg name="use_ll2utm" default="true" />
+  <arg name="use_gps_imu_fusion" default="true" />
+  <arg name="morai_ego_topic" default="/morai/ego_topic" />
+  <arg name="imu_port" default="2224" />
+  <arg name="imu_topic" default="/imu/data" />
+  <arg name="filtered_odom_topic" default="/odometry/filtered" />
+  <arg name="ll2utm_use_ego_heading" default="false" />
+  <arg name="ll2utm_use_ego_position" default="false" />
+  <arg name="ll2utm_update_ego_position_offset" default="false" />
+  <arg name="ll2utm_heading_offset_deg" default="-1.38" />
+
+  <!-- 첫 번째 전역 경로 퍼블리셔의 파일과 토픽 파라미터를 설정하며 republish_hz는 호환용으로만 남긴다. -->
+  <arg name="global_path1_package_name" default="global_path_planner" />
+  <arg name="global_path1_folder_name" default="path_data" />
+  <arg name="global_path1_file_name" default="test1_1_sm" />
+  <arg name="global_path1_topic_name" default="/global_path1" />
+  <arg name="global_path1_frame_id" default="map" />
+  <arg name="global_path1_debug" default="true" />
+  <arg name="global_path1_latch" default="true" />
+  <arg name="global_path1_republish_hz" default="0.0" />
+
+  <!-- 두 번째 전역 경로 퍼블리셔의 파일과 토픽 파라미터를 설정하며 republish_hz는 호환용으로만 남긴다. -->
+  <arg name="global_path2_package_name" default="global_path_planner" />
+  <arg name="global_path2_folder_name" default="path_data" />
+  <arg name="global_path2_file_name" default="test1_1_sm" />
+  <arg name="global_path2_topic_name" default="/global_path2" />
+  <arg name="global_path2_frame_id" default="map" />
+  <arg name="global_path2_debug" default="false" />
+  <arg name="global_path2_latch" default="true" />
+  <arg name="global_path2_republish_hz" default="0.0" />
+
+  <!-- odom_path_publisher의 윈도우 탐색과 비용 기반 경로 선택 파라미터를 설정한다. -->
+  <arg name="odom_path_odom_topic" default="$(arg filtered_odom_topic)" />
+  <arg name="odom_path_global_path1_topic" default="/global_path1" />
+  <arg name="odom_path_global_path2_topic" default="/global_path2" />
+  <arg name="odom_path_local_path1_topic" default="/local_path1" />
+  <arg name="odom_path_local_path2_topic" default="/local_path2" />
+  <arg name="odom_path_current_path_topic" default="/current_path" />
+  <arg name="odom_path_local_frame_id" default="base_link" />
+  <arg name="odom_path_rate_hz" default="50.0" />
+  <arg name="odom_path_waypoint_interval" default="0.1" />
+  <arg name="odom_path_back_distance" default="2.0" />
+  <arg name="odom_path_front_distance" default="50.0" />
+  <arg name="odom_path_window_back" default="10" />
+  <arg name="odom_path_window_fwd" default="100" />
+  <arg name="odom_path_is_circular_path" default="true" />
+  <arg name="odom_path_teleport_ego_dist_thresh" default="5.0" />
+  <arg name="odom_path_max_valid_nearest_dist" default="30.0" />
+  <arg name="odom_path_distance_weight" default="1.0" />
+  <arg name="odom_path_angle_weight" default="5.0" />
+  <arg name="odom_path_forward_dot_min" default="0.0" />
+  <arg name="odom_path_path_heading_dot_min" default="0.0" />
+  <arg name="odom_path_switch_margin_cost" default="2.0" />
+  <arg name="odom_path_min_switch_interval_s" default="0.5" />
+  <arg name="odom_path_better_count_required" default="3" />
+
+  <!-- 지역 미션 맵과 전역 경로 맵 서버를 실행한다. -->
+  <group ns="region_map">
+    <node name="map_server" pkg="map_server" type="map_server" args="$(find global_path_planner)/map_data/region_map.yaml" >
+    </node>
+  </group>
+  <group ns="global_map">
+    <node name="map_server" pkg="map_server" type="map_server" args="$(find global_path_planner)/map_data/global_map.yaml" >
+    </node>
+  </group>
+
+  <!-- 기존 GPS 위치 + MORAI Vehicle Status 속도로 /gps_utm_odom을 생성한다. -->
+  <node name="ll2utm" pkg="global_path_planner" type="ll2utm.py" respawn="true" if="$(arg use_ll2utm)">
+    <param name="gps_topic" value="$(arg ll2utm_gps_topic)" />
+    <param name="ego_topic" value="$(arg morai_ego_topic)" />
+    <param name="odom_topic" value="$(arg ll2utm_odom_topic)" />
+    <param name="use_ego_heading" value="$(arg ll2utm_use_ego_heading)" />
+    <param name="use_ego_position" value="$(arg ll2utm_use_ego_position)" />
+    <param name="use_ego_speed" value="true" />
+    <param name="update_ego_position_offset" value="$(arg ll2utm_update_ego_position_offset)" />
+    <param name="heading_offset_deg" value="$(arg ll2utm_heading_offset_deg)" />
+    <param name="debug_print" value="false" />
+  </node>
+
+  <node name="morai_imu_udp" pkg="global_path_planner" type="morai_imu_udp.py"
+        output="log" respawn="true" if="$(arg use_gps_imu_fusion)">
+    <param name="port" value="$(arg imu_port)" />
+    <param name="topic" value="$(arg imu_topic)" />
+    <param name="frame_id" value="imu_link" />
+    <param name="use_packet_time" value="false" />
+    <param name="debug_raw" value="false" />
+    <param name="gyro_lpf_tau_s" value="0.08" />
+    <param name="accel_lpf_tau_s" value="0.12" />
+  </node>
+
+  <node name="gps_imu_fusion" pkg="global_path_planner" type="gps_imu_fusion.py"
+        respawn="true" if="$(arg use_gps_imu_fusion)">
+    <param name="gps_odom_topic" value="$(arg ll2utm_odom_topic)" />
+    <param name="imu_topic" value="$(arg imu_topic)" />
+    <param name="output_odom_topic" value="$(arg filtered_odom_topic)" />
+    <param name="frame_id" value="map" />
+    <param name="child_frame_id" value="base_link" />
+    <param name="publish_tf" value="false" />
+    <param name="rate_hz" value="50.0" />
+    <param name="use_message_stamp" value="false" />
+    <param name="use_fixed_lag_gps" value="true" />
+    <param name="gps_measurement_delay_s" value="0.025" />
+    <param name="fixed_lag_history_s" value="0.5" />
+    <param name="use_ekf" value="true" />
+    <param name="ekf_initial_covariance" value="1.0" />
+    <param name="ekf_process_noise_x" value="0.08" />
+    <param name="ekf_process_noise_y" value="0.08" />
+    <param name="ekf_process_noise_yaw" value="0.01" />
+    <param name="ekf_process_noise_speed" value="0.30" />
+    <param name="ekf_process_noise_yaw_rate" value="0.20" />
+    <param name="ekf_gps_position_variance" value="0.18" />
+    <param name="ekf_gps_speed_variance" value="0.12" />
+    <param name="ekf_imu_yaw_variance" value="0.006" />
+    <param name="ekf_imu_yaw_rate_variance" value="0.03" />
+    <param name="ekf_min_position_variance" value="0.08" />
+    <param name="ekf_min_yaw_variance" value="0.0015" />
+    <param name="ekf_min_speed_variance" value="0.03" />
+    <param name="ekf_min_yaw_rate_variance" value="0.005" />
+    <param name="use_gps_course_yaw_update" value="true" />
+    <param name="gps_course_min_speed_mps" value="8.0" />
+    <param name="gps_course_max_yaw_rate_rad_s" value="0.08" />
+    <param name="gps_course_min_distance_m" value="1.5" />
+    <param name="gps_course_max_yaw_innovation_deg" value="10.0" />
+    <param name="ekf_gps_course_yaw_variance" value="0.12" />
+    <param name="use_ekf_startup_alignment" value="true" />
+    <param name="ekf_startup_min_speed_mps" value="6.0" />
+    <param name="ekf_startup_min_distance_m" value="0.7" />
+    <param name="ekf_startup_max_wait_s" value="0.5" />
+    <param name="ekf_startup_max_yaw_rate_rad_s" value="0.10" />
+    <param name="ekf_startup_course_yaw_alpha" value="0.4" />
+    <param name="use_imu_orientation" value="true" />
+    <param name="use_imu_yaw_rate" value="true" />
+    <param name="use_speed_prediction" value="true" />
+    <param name="prediction_speed_scale" value="0.97" />
+    <param name="imu_yaw_offset_deg" value="-1.5" />
+    <param name="invert_yaw_rate" value="false" />
+    <param name="input_speed_scale" value="0.2777777778" />
+    <param name="gps_to_base_x" value="-0.6" />
+    <param name="gps_to_base_y" value="-0.1" />
+    <param name="debug_print" value="false" />
+  </node>
+
+  <!-- 전역 경로 파일을 읽어 각 토픽으로 퍼블리시하는 노드를 실행한다. -->
+  <node name="global_path_publisher1" pkg="global_path_planner" type="global_path_publisher.py" respawn="true">
+    <param name="package_name" value="$(arg global_path1_package_name)" type="str" />
+    <param name="folder_name" value="$(arg global_path1_folder_name)" type="str" />
+    <param name="file_name" value="$(arg global_path1_file_name)" type="str" />
+    <param name="topic_name" value="$(arg global_path1_topic_name)" type="str" />
+    <param name="frame_id" value="$(arg global_path1_frame_id)" type="str" />
+    <param name="debug" value="$(arg global_path1_debug)" type="bool" />
+    <param name="latch" value="$(arg global_path1_latch)" type="bool" />
+    <param name="republish_hz" value="$(arg global_path1_republish_hz)" type="double" />
+  </node>
+  <node name="global_path_publisher2" pkg="global_path_planner" type="global_path_publisher.py" respawn="true">
+    <param name="package_name" value="$(arg global_path2_package_name)" type="str" />
+    <param name="folder_name" value="$(arg global_path2_folder_name)" type="str" />
+    <param name="file_name" value="$(arg global_path2_file_name)" type="str" />
+    <param name="topic_name" value="$(arg global_path2_topic_name)" type="str" />
+    <param name="frame_id" value="$(arg global_path2_frame_id)" type="str" />
+    <param name="debug" value="$(arg global_path2_debug)" type="bool" />
+    <param name="latch" value="$(arg global_path2_latch)" type="bool" />
+    <param name="republish_hz" value="$(arg global_path2_republish_hz)" type="double" />
+  </node>
+
+  <!-- 경로 선택과 지역 상태 판별에 필요한 보조 노드를 실행한다. -->
+  <node name="odom_path_publisher" pkg="global_path_planner" type="odom_path_publisher" respawn="true">
+    <param name="odom_topic" value="$(arg odom_path_odom_topic)" type="str" />
+    <param name="global_path1_topic" value="$(arg odom_path_global_path1_topic)" type="str" />
+    <param name="global_path2_topic" value="$(arg odom_path_global_path2_topic)" type="str" />
+    <param name="local_path1_topic" value="$(arg odom_path_local_path1_topic)" type="str" />
+    <param name="local_path2_topic" value="$(arg odom_path_local_path2_topic)" type="str" />
+    <param name="current_path_topic" value="$(arg odom_path_current_path_topic)" type="str" />
+    <param name="local_frame_id" value="$(arg odom_path_local_frame_id)" type="str" />
+    <param name="rate_hz" value="$(arg odom_path_rate_hz)" type="double" />
+    <param name="waypoint_interval" value="$(arg odom_path_waypoint_interval)" type="double" />
+    <param name="back_distance" value="$(arg odom_path_back_distance)" type="double" />
+    <param name="front_distance" value="$(arg odom_path_front_distance)" type="double" />
+    <param name="window_back" value="$(arg odom_path_window_back)" type="int" />
+    <param name="window_fwd" value="$(arg odom_path_window_fwd)" type="int" />
+    <param name="is_circular_path" value="$(arg odom_path_is_circular_path)" type="bool" />
+    <param name="teleport_ego_dist_thresh" value="$(arg odom_path_teleport_ego_dist_thresh)" type="double" />
+    <param name="max_valid_nearest_dist" value="$(arg odom_path_max_valid_nearest_dist)" type="double" />
+    <param name="distance_weight" value="$(arg odom_path_distance_weight)" type="double" />
+    <param name="angle_weight" value="$(arg odom_path_angle_weight)" type="double" />
+    <param name="forward_dot_min" value="$(arg odom_path_forward_dot_min)" type="double" />
+    <param name="path_heading_dot_min" value="$(arg odom_path_path_heading_dot_min)" type="double" />
+    <param name="switch_margin_cost" value="$(arg odom_path_switch_margin_cost)" type="double" />
+    <param name="min_switch_interval_s" value="$(arg odom_path_min_switch_interval_s)" type="double" />
+    <param name="better_count_required" value="$(arg odom_path_better_count_required)" type="int" />
+  </node>
+  <node name="local_path_selector" pkg="global_path_planner" type="local_path_selector" respawn="true" output="screen" />
+  <!-- <node name="region_state_publisher" pkg="global_path_planner"  type="region_state_publisher" respawn="true" args="final" /> -->
+</launch>
