@@ -1,8 +1,31 @@
 # 판단부(Decision) 아키텍처 설계서
 
-- 프로젝트: ai_comp_2026 (2026 국토부 자율주행 경진대회)
-- 대상: MORAI SIM K-City (`R_KR_PR_K-city_2025`, UTM52N)
-- 작성 상태: **v0.1 초안** — 인지/제어 인터페이스 미확정 상태에서 작성
+- 프로젝트: ai_comp_2026 (2026 국토부 KATRI 대학생 AI/SW 모빌리티 경진대회)
+- 대상: MORAI SIM K-City (`R-KR_PG_K-City_2025`, UTM52N)
+- 대회용 시뮬레이터: 25.S4.MolitComp03 / 차량: 2023 Hyundai Ioniq5 (폭 1.892m, 길이 4.635m)
+- 작성 상태: **v0.2** — 규정집 v1.0 정렬, 인지/제어 경계·2026 우회전 도로교통법 확인 반영
+  (v0.1: 인터페이스 미확정 초안. 본 문서가 대체)
+
+---
+
+## 0. v0.2에서 확정된 것
+
+규정집 v1.0 + 조사로 아래가 확정되어 v0.1 초안을 실제 미션에 정렬했다.
+
+- **속도 판정은 Ego Vehicle Status 기준, 60kph 초과 즉시 15초** → 60 상한 하드클램프가 최우선.
+- **랜덤 미션은 "장애물 회피 / 끼어들기" 2종뿐** (규정 3-2) → 터널 처리 단순화.
+- **2026 우회전 도로교통법** 확정 (아래 §1).
+- **제어 노드 부재** 확인 → 판단부는 `/selected_path`+`/decision`까지만, CtrlCmd는 제어팀.
+- **자차 pose 입력은 `/gps_utm_odom`** (ll2utm.py 출력).
+
+사용자 확정 결정:
+1. 정적 장애물 → **Path Shifting** (Frenet Lattice 미채택)
+2. 동적 장애물 → **TTC 정지/감속 전용** (횡회피 안 함)
+3. 입력 소스 미정 → **어댑터로 추상화**해서 흡수
+4. 출력 경계 → **경로 + 목표속도 + 정지요구** (판단부는 CtrlCmd 안 만든다)
+5. **ADAS ACC(앞차 추종) 상시 동작** — 선행차 속도에 맞춰 following하는 종방향 기능이 전 구간 항상 켜짐 (FollowingModule)
+
+> 첨부 예정이던 미션 지도 이미지·예제 시나리오 파일은 아직 미수령. 본 설계는 규정집 전문 + 구두 경로 설명 기반이며, 파일 수령 시 RegionResolver의 구역 좌표/시퀀스만 갱신하면 된다.
 
 ---
 
@@ -10,8 +33,7 @@
 
 ### 1.1 모든 미션을 3가지 출력으로 환원한다
 
-미션이 8종이라고 노드를 8개 만들지 않는다.
-신호등이든 보행자든 회전교차로든, 판단부가 내리는 결론은 결국 셋 중 하나다.
+미션이 여러 종이라고 노드를 종마다 만들지 않는다. 판단부의 결론은 결국 셋 중 하나다.
 
 | 출력 | 의미 |
 |---|---|
@@ -21,162 +43,133 @@
 
 ### 1.2 중재는 "가장 보수적인 값"으로 한다
 
-여러 모듈이 동시에 서로 다른 요구를 할 때, 우선순위 표를 만들지 않는다.
-
-- 속도: 모든 모듈이 제시한 상한 중 **최솟값**
+우선순위 표를 만들지 않는다.
+- 속도: 모든 모듈 상한 중 **최솟값**
 - 정지: **하나라도** 요구하면 정지
-- 경로: 우선순위가 정해진 하나만 채택
+- 경로: 우선순위 최상위 하나만 채택
 
-이유: 법규 준수와 안전 양쪽에 자동으로 부합하고, 우선순위 표 관리라는
-버그 온상을 없앨 수 있다. 코드도 짧아진다.
+법규 준수와 안전 양쪽에 자동 부합하고, 우선순위 표 관리라는 버그 온상을 없앤다. 코드도 짧다.
 
 ### 1.3 외부 메시지 타입은 어댑터에서만 다룬다
 
-인지·제어와의 인터페이스가 아직 확정되지 않았고, 반드시 바뀐다.
-모듈 코드는 **내부 공통 타입만** 안다. 외부 메시지를 아는 곳은 어댑터뿐이다.
+인지·제어 인터페이스가 확정되지 않았고 반드시 바뀐다. 모듈 코드는 **내부 공통 타입만** 안다.
+
+### 1.4 규정집 확정 제약
+
+| 항목 | 규정 | 설계 함의 |
+|---|---|---|
+| 속도 | 전구간 60kph, **고주로 진입~톨게이트만 해제**. 초과 **즉시** 15초, 3초 지속마다 +15초. **Ego Vehicle Status로 판정** | 60 상한 **하드클램프 최우선**. 오버슈트 마진 위해 목표 58kph 등 튜닝 |
+| 교차로 신호 | **앞바퀴가 정지선 넘는 순간의 신호**로 판정. 초록에 주행. 미준수 15초 | 정지 위치 = 정지선 정밀도 중요 → 정지선 거리 소스 필요 |
+| 차로 준수 | 차선 접촉 3초당 5초 (바퀴 1개 기준) | Path Shifting `max_shift`는 **차선폭 이내**. 넘으면 정지 |
+| 장애물 회피 | 크기 고려 충돌 시 15초/회 | 충돌 마진에 객체 bounding box 반영 |
+| 끼어들기 | 회전교차로/합류에서 NPC 충돌 유의 | 회전교차로·고주로 합류 = 동일 gap-acceptance 문제 |
+| GPS 음영(터널) | GPS **blackout**. 랜덤미션 **장애물/끼어들기 2종뿐** | 터널에선 신호등·우회전 안 나옴 → Static+Dynamic+Gap만 켜면 충분 |
+| 제한시간 | 15분 | 교착(회전교차로 무한대기) 방지 필수 |
+
+**2026 우회전 도로교통법:**
+- 전방신호 **적색** → 정지선 **완전정지**(바퀴 정지), 이후 횡단보도 보행자 없으면 진행. 서행 슬금 통과는 위반.
+- 전방신호 **녹색** → 우회전 직후 횡단보도 보행자 건너거나 건너려 하면 정지, 없으면 일시정지 없이 서행 통과 가능.
+- **우회전 전용 신호등**이 있으면 **녹색 화살표에만** 진행.
 
 ---
 
-## 2. 전체 구조
+## 2. I/O 경계
 
-```
-   [외부 입력]                      [어댑터 계층]        [내부 공통 타입]
-   ─────────────                    ────────────         ──────────────
-   자차 측위 (nav_msgs/Odometry) ──►  EgoAdapter    ──►  EgoState
-   장애물   (인지팀 메시지, 미정)  ──►  ObjectAdapter ──►  vector<Obstacle>
-   신호등   (인지팀 메시지, 미정)  ──►  TrafficAdapter──►  TrafficLight
-   전역경로 (nav_msgs/Path)      ──►  PathAdapter   ──►  ReferencePath
-                                                              │
-                                                              ▼
-                              ┌────────────────────────────────────┐
-                              │ 1) RegionResolver                  │
-                              │    위치 → 현재 미션 구역            │
-                              │    출력: MissionRegion              │
-                              └────────────────────────────────────┘
-                                                              │
-                                                              ▼
-                              ┌────────────────────────────────────┐
-                              │ 2) BehaviorModules (병렬 평가)      │
-                              │    구역에서 활성화된 모듈만 실행     │
-                              │    각각 BehaviorOutput 반환         │
-                              └────────────────────────────────────┘
-                                                              │
-                                                              ▼
-                              ┌────────────────────────────────────┐
-                              │ 3) Arbiter                          │
-                              │    속도 = min, 정지 = OR            │
-                              │    경로 = 우선순위 최상위            │
-                              └────────────────────────────────────┘
-                                                              │
-                                                              ▼
-                              ┌────────────────────────────────────┐
-                              │ 4) PathGenerator                    │
-                              │    기준경로 + 횡방향 오프셋 → 최종   │
-                              └────────────────────────────────────┘
-                                                              │
-                                                              ▼
-                                        /selected_path  (nav_msgs/Path)
-                                        /decision       (목표속도 + 상태)
-```
+**입력** (판단부가 구독):
+- `/gps_utm_odom` — `nav_msgs/Odometry` (**자차 pose 주 입력**). 체인: `/gps`(`morai_msgs/GPSMessage`) → `ll2utm.py`(UTM52N) → `/gps_utm_odom`. (융합 출력 `/odometry/filtered`도 있으나 판단부는 `/gps_utm_odom` 사용)
+- `/morai/ego_topic` — `morai_msgs/EgoVehicleStatus` (속도/heading 보조, 규정 속도판정과 동일 소스)
+- 전역경로 `nav_msgs/Path` (차선별 1~N개)
+- 장애물 토픽 — **미정** (`katri_msgs/Objects` 또는 MORAI `ObjectStatusList`)
+- 신호등 토픽 — **미정** (인지팀, 판단부 수신 가정)
+
+**출력** (판단부가 발행):
+- `/selected_path` — `nav_msgs/Path`
+- `/decision` — `katri_msgs/Decision` **(신규 정의 필요)**
+
+**경계 주의:** `/selected_path`+`/decision` → `/ctrl_cmd`(`morai_msgs/CtrlCmd`, `longlCmdType=1` accel/brake) 변환하는 **순수추종+종방향 제어 노드가 현재 워크스페이스에 없다** → **제어팀 스코프**. 판단부는 CtrlCmd를 생성하지 않는다.
+(참고: `control_udp_pub.py`가 `/ctrl_cmd`를 UDP 중계. 그 브리지가 `msg.steering`을 읽는데 repo `CtrlCmd.msg`엔 `front_steer`만 있어 필드명 불일치 — 제어팀 확인사항, 판단부 무관.)
 
 ---
 
-## 3. 내부 공통 타입 (모듈 간 공통 언어)
+## 3. 전체 구조
 
-**모든 값은 SI 단위(m, m/s, rad)로 통일한다.**
-km/h, deg 등의 변환은 어댑터에서 끝내고, 내부에는 들여보내지 않는다.
+```
+[외부입력] ─► [어댑터] ─► 내부공통타입
+   /gps_utm_odom ► EgoAdapter  ──► EgoState (pose_valid 포함)
+   장애물(미정)─► ObjectAdapter ──► vector<Obstacle>
+   신호등(미정)─► TrafficAdapter──► TrafficLight
+   전역경로 ────► PathAdapter   ──► ReferencePath
+                                        │
+        ┌───────────────────────────────┘
+        ▼
+   1) RegionResolver   위치 → MissionRegion (터널이면 gps_shadow=true)
+        ▼
+   2) BehaviorModules  구역 활성 모듈만 병렬 evaluate() → BehaviorOutput[]
+        ▼
+   3) Arbiter          속도=min, 정지=OR, 경로=우선순위 최상위
+        ▼
+   4) PathGenerator    기준경로 + 횡오프셋/차선선택 → 최종경로
+        ▼
+   /selected_path (Path) + /decision (목표속도·정지·reason)
+```
+
+min/OR 중재는 우선순위표 없이 법규+안전에 자동 부합, GPS 음영에서 "전 모듈 ON"이 랜덤미션을 별도 로직 없이 흡수.
+
+---
+
+## 4. 내부 공통 타입 (SI 단위, 어댑터에서만 외부 메시지 취급)
 
 ```cpp
-// 자차 상태. 판단에 필요한 최소한만 담는다.
 struct EgoState {
-  double x_m;          // ENU 동쪽 방향 위치
-  double y_m;          // ENU 북쪽 방향 위치
-  double yaw_rad;      // 진행 방향. ENU 기준, 반시계 방향이 +
-  double speed_mps;    // 진행 방향 속도
-  bool   pose_valid;   // 측위를 믿을 수 있는가 (GPS 음영구간에서 false)
+  double x_m, y_m;       // ENU 위치
+  double yaw_rad;        // ENU 기준, 반시계 +
+  double speed_mps;
+  bool   pose_valid;     // GPS 음영구간에서 false
 };
 
-// 장애물 하나. 정적·동적을 구분하지 않고 하나의 타입으로 다룬다.
-// (속도가 0에 가까우면 정적으로 취급하면 되므로 타입을 나눌 이유가 없다)
 struct Obstacle {
   int    id;
-  double x_m, y_m;        // ENU 위치
-  double yaw_rad;         // 진행 방향
-  double speed_mps;       // 속도의 크기
-  double width_m;         // 폭
-  double length_m;        // 길이
-  bool   is_pedestrian;   // 보행자 여부 (보행자는 더 보수적으로 다뤄야 함)
+  double x_m, y_m;
+  double yaw_rad;
+  double speed_mps;
+  double width_m, length_m;
+  bool   is_pedestrian;
 };
 
-// 신호등 하나.
 struct TrafficLight {
-  bool   valid;            // 지금 유효한 신호등 정보가 있는가
-  bool   go_straight;      // 직진 가능 (녹색)
-  bool   go_left;          // 좌회전 가능 (좌회전 화살표)
-  bool   is_yellow;        // 황색
-  double stopline_dist_m;  // 정지선까지 남은 거리. 모르면 음수
+  bool   valid;
+  bool   is_red, is_green, is_yellow;
+  bool   go_left;        // 좌회전 화살표
+  bool   arrow_right;    // 우회전 전용 녹색 화살표
+  double stopline_dist_m;  // 모르면 음수
 };
 
-// 기준 경로. 전역경로에서 자차 주변만 잘라낸 것.
 struct ReferencePath {
-  std::vector<double> x_m;      // ENU 좌표 배열
-  std::vector<double> y_m;
-  std::vector<double> s_m;      // 경로 시작점부터의 누적 거리
-  int    nearest_index;         // 자차와 가장 가까운 점의 인덱스
-  double lateral_error_m;       // 경로 중심에서 얼마나 벗어나 있는가
+  std::vector<double> x_m, y_m, s_m;
+  int    nearest_index;
+  double lateral_error_m;
 };
-```
 
-### 3.1 왜 정적/동적 장애물을 나누지 않는가
+struct MissionRegion {
+  enum Kind { NORMAL, TRAFFIC_LIGHT, STATIC_OBS, DYNAMIC_OBS,
+              INTERSECTION, ROUNDABOUT, HIGHWAY, TOLLGATE } kind;
+  bool gps_shadow;   // 터널
+  int  subphase;     // 고주로 차선변경 시퀀스(좌1/좌2/우1/우2) 등
+};
 
-타입을 나누면 "속도 0.3m/s인 물체는 어느 쪽인가" 같은 경계 문제가 생기고,
-어댑터에서 분류를 잘못하면 모듈이 통째로 동작하지 않는다.
-하나로 두고 **모듈이 속도를 보고 알아서 판단**하게 하는 편이 버그가 적다.
-
----
-
-## 4. 모듈 인터페이스
-
-### 4.1 모듈이 내놓는 결과
-
-```cpp
 struct BehaviorOutput {
-  // 이 모듈이 허용하는 최대 속도. 제한할 생각이 없으면 큰 값을 넣는다.
-  double speed_limit_mps = 1e9;
-
-  // 지금 멈춰야 한다고 판단하면 true.
-  // 하나의 모듈이라도 true면 최종 결과는 정지다.
-  bool request_stop = false;
-
-  // 기준 경로를 옆으로 얼마나 밀 것인가. 0이면 밀지 않는다.
-  // 왼쪽이 +, 오른쪽이 -.
-  double lateral_offset_m = 0.0;
-
-  // 여러 경로 중 몇 번을 쓰고 싶은가. -1이면 관심 없다는 뜻.
-  int target_path_index = -1;
-
-  // 왜 이런 결정을 내렸는지 한 줄로. 로그와 디버깅에 쓴다.
-  // 이 값이 없으면 "차가 왜 멈췄지?"를 나중에 알 수 없다.
-  std::string reason;
+  double speed_limit_mps = 1e9;   // 제한 없으면 큰 값
+  bool   request_stop    = false; // 하나라도 true면 최종 정지
+  double lateral_offset_m = 0.0;  // 왼쪽 +, 오른쪽 -
+  int    target_path_index = -1;  // -1이면 관심 없음
+  std::string reason;             // 로그·디버깅
 };
-```
 
-### 4.2 모듈 공통 인터페이스
-
-```cpp
 class BehaviorModule {
  public:
   virtual ~BehaviorModule() = default;
-
-  // 모듈 이름. 로그에 찍힌다.
   virtual std::string name() const = 0;
-
-  // 지금 이 모듈이 판단에 참여해야 하는가.
-  // 예: 신호등 모듈은 신호등 구역에서만 참여한다.
   virtual bool isActive(const MissionRegion& region) const = 0;
-
-  // 실제 판단. 입력을 보고 BehaviorOutput 하나를 만들어 돌려준다.
-  // 이 함수 안에서 ROS 관련 코드를 쓰지 않는다. 순수 계산만 한다.
   virtual BehaviorOutput evaluate(const EgoState& ego,
                                   const std::vector<Obstacle>& obstacles,
                                   const TrafficLight& light,
@@ -184,312 +177,110 @@ class BehaviorModule {
 };
 ```
 
-**규칙: `evaluate()` 안에서 `ros::` 로 시작하는 코드를 쓰지 않는다.**
-순수 계산만 하게 두면 시뮬레이터 없이 단위 테스트를 돌릴 수 있다.
+**규칙: `evaluate()` 안에서 `ros::` 금지** → 시뮬 없이 단위 테스트 가능(핵심).
+정적/동적 장애물 타입을 나누지 않는다 — 속도로 모듈이 알아서 판단(경계 문제·오분류 버그 회피).
 
 ---
 
-## 5. 중재 규칙 (Arbiter)
+## 5. 모듈 명세
 
-```cpp
-// 모든 활성 모듈의 결과를 하나로 합친다.
-// 규칙은 단 세 줄이다. 복잡하게 만들지 않는다.
-FinalDecision arbitrate(const std::vector<BehaviorOutput>& outputs) {
-  FinalDecision d;
+| # | 모듈 | 활성 구역 | 출력 | 방식(확정) |
+|---|---|---|---|---|
+| 1 | **SpeedLimitModule** | 항상 | `speed_limit_mps` | 60kph 하드상한 + 곡률기반 감속. 고주로 구간만 상한 해제. **최우선 안전선** |
+| 1b | **FollowingModule (ADAS ACC)** | **항상** | `speed_limit_mps` | **앞차 추종(상시).** 자차 차로 전방 선행차와 **정속 time-gap(CTG)** 유지: gap≥목표헤드웨이면 `v_limit=min(v_lead, v_desired)`, gap<목표면 비례 감속. 선행차 없으면 무제한. DynamicObstacle(비상정지)와는 min으로 자동 합성 — 역할 분리 |
+| 2 | **TrafficLightModule** | 신호등 구역 | `request_stop`, `speed_limit_mps` | **red→정지(0), green→해제.** 제동거리(v²/2a) 미달 시 통과. 정지선거리 비례 감속 → 정지선 앞 0 |
+| 3 | **StaticObstacleModule** | 정적장애물 구역 (+음영) | `lateral_offset_m`, `speed_limit_mps` | **Path Shifting.** 경로 s/d 투영 → 반대쪽 완만히 밀었다 복귀. `max_shift`=차선폭 이내, 못 피하면 정지 |
+| 4 | **DynamicObstacleModule** | 동적장애물 구역 (+음영) | `request_stop`, `speed_limit_mps` | **TTC 정지/감속 전용.** 횡거리 게이팅(인도 위 보행자 무시) + 히스테리시스(경계 떨림 방지). 횡회피 안 함 |
+| 5 | **IntersectionModule** | 교차로 구역 | `request_stop` | **우회전**: 적색→완전정지 후 보행자없음 진행 / 녹색→보행자 있으면 정지 / 전용신호→녹색화살표만. **좌회전**: 좌회전 화살표 대기(신호 비트만 다름) |
+| 6 | **GapAcceptanceModule** | 회전교차로 + 고주로 합류/차선변경 | `request_stop`, `speed_limit_mps`, `target_path_index` | 진입대상 차로 차량 TTC → gap 있으면 진입. **교착방지**: 대기 길어지면 임계값 완화(최소안전값 하한). 고주로는 좌2우2 시퀀스를 subphase로 순차 |
 
-  // 1) 속도: 가장 낮은 상한을 따른다.
-  //    누군가 "50까지만", 누군가 "20까지만" 하면 20으로 간다.
-  d.target_speed_mps = 1e9;
-  for (const auto& o : outputs)
-    d.target_speed_mps = std::min(d.target_speed_mps, o.speed_limit_mps);
+**GPS 음영(터널) 처리:** 별도 모듈 없음. `gps_shadow=true`면 region gate를 우회해 **Static+Dynamic+Gap 상시 활성**(랜덤미션이 이 2종뿐). 신호등 모듈도 켜두되 유효신호 없으면 `valid=false`로 자동 무동작 → 코드 안 늘어남. 측위 blackout은 판단부 소관 아님(측위팀 추측항법). 판단부는 `pose_valid=false` 시 **속도만 낮춘다**.
 
-  // 2) 정지: 한 명이라도 멈추라 하면 멈춘다.
-  //    안전 쪽으로 기우는 것이 항상 옳다.
-  for (const auto& o : outputs)
-    if (o.request_stop) { d.stop_required = true; break; }
-
-  // 3) 경로 오프셋: 0이 아닌 값을 낸 모듈 중 우선순위가 가장 높은 하나만 쓴다.
-  //    두 모듈이 각각 왼쪽·오른쪽으로 밀면 더해서 상쇄되면 안 되므로 더하지 않는다.
-  //    (현재는 정적 장애물 모듈만 오프셋을 내므로 사실상 그 값이 그대로 쓰인다)
-
-  return d;
-}
-```
-
-### 5.1 모듈 우선순위 (경로 관련 출력에만 적용)
-
-속도·정지는 우선순위가 필요 없다(min/OR로 해결). 경로만 순위를 둔다.
-
-```
-1. DynamicObstacleModule   (사람이 최우선)
-2. StaticObstacleModule
-3. LaneChangeModule
-4. RoundaboutModule
-```
+**회전교차로 진출:** "진입 후 바로 우측 진출로"는 **전역경로가 이미 진출로로 그려져 있으면** 경로 문제가 아니다. GapAcceptance는 **진입 타이밍(정지/출발)만** 담당, 진출 경로는 PathGenerator의 전역경로 추종이 처리 → 별도 진출 로직 불필요.
 
 ---
 
-## 6. 모듈 명세
-
-### 6.1 SpeedLimitModule — 속도 제한
-
-| 항목 | 내용 |
-|---|---|
-| 활성 구역 | 항상 |
-| 출력 | `speed_limit_mps` |
-| 동작 | 기본 60kph. 고속주회로 진입~톨게이트 전까지는 제한 해제 |
-| 파라미터 | `default_limit_kph=60`, `highway_limit_kph=<미정>` |
-
-곡률 기반 감속도 여기서 처리한다. 급커브에서 60kph로 들어가면 이탈한다.
-
-### 6.2 TrafficLightModule — 신호등
-
-| 항목 | 내용 |
-|---|---|
-| 활성 구역 | 신호등 구역 |
-| 출력 | `request_stop`, `speed_limit_mps` |
-| 입력 의존 | 인지팀 신호등 토픽 **(인터페이스 미확정)** |
-
-동작 로직:
+## 6. 중재 규칙 (Arbiter)
 
 ```
-제동거리 = v² / (2 × 감속도)
-
-if (정지선까지 거리 < 제동거리)
-    // 이미 멈출 수 없다. 급정거하면 정지선 위에 서거나 추돌 위험.
-    통과 (제한 없음)
-else if (신호가 진행 불가)
-    거리에 비례해 속도 상한을 낮춘다 → 정지선 앞에서 0
-else
-    제한 없음
+target_speed = min(모든 모듈 speed_limit)     // 60 상한이 항상 포함되어 안전
+stop_required = OR(모든 모듈 request_stop)      // 하나라도 정지면 정지
+path = 우선순위 최상위 모듈의 offset/target_path만 채택 (더하지 않음)
 ```
+경로 우선순위: DynamicObstacle > StaticObstacle > GapAcceptance(차선변경) > Intersection.
+(속도·정지는 우선순위 불필요 — min/OR로 해결)
 
-**미확정**: 정지선까지의 거리를 인지팀이 주는지, 판단부가 지도에서 구해야 하는지.
-→ 주지 않는다면 정지선 좌표 테이블을 판단부가 관리해야 한다.
-
-### 6.3 StaticObstacleModule — 정적 장애물 (Path Shifting)
-
-| 항목 | 내용 |
-|---|---|
-| 활성 구역 | 정적 장애물 구역 (+ GPS 음영구간) |
-| 출력 | `lateral_offset_m`, `speed_limit_mps` |
-| 방식 | **Path Shifting** (Frenet Lattice 미채택) |
-
-Path Shifting을 택한 이유:
-- 시나리오상 장애물이 1개, 2×3m, 고정 상태다
-- Lattice는 후보 경로 수십 개를 만들고 평가해야 해서 파라미터가 10개 이상 늘어난다
-- 왜 그 경로를 골랐는지 추적하기 어려워 디버깅 비용이 크다
-- Shifting은 파라미터 2~3개면 되고, 결과를 눈으로 바로 확인할 수 있다
-
-동작 로직:
-
-```
-1. 기준 경로 위에 장애물을 투영해 "경로 진행거리 s" 와 "경로 옆 거리 d" 를 구한다
-2. |d| 가 (차폭/2 + 장애물폭/2 + 여유) 보다 크면 → 안 걸린다. 오프셋 0
-3. 걸린다면, 장애물 반대쪽으로 필요한 만큼 경로를 옆으로 민다
-4. 갑자기 밀면 조향이 튀므로, 장애물 앞뒤로 완만하게 밀었다 되돌린다
-```
-
-파라미터:
-```yaml
-lateral_margin_m: 0.5      # [m] 장애물과 차량 사이 최소 여유
-shift_start_dist_m: 20.0   # [m] 장애물 몇 m 앞에서부터 밀기 시작할지
-shift_end_dist_m: 10.0     # [m] 장애물 지난 뒤 몇 m 만에 원위치할지
-max_shift_m: 2.0           # [m] 최대로 밀 수 있는 양 (차선 폭 이내)
-```
-
-**주의**: 민 경로가 차선을 벗어나거나 반대편 차선을 침범하면 법규 위반이다.
-`max_shift_m` 를 차선 폭 안으로 제한하고, 그래도 못 피하면 정지시킨다.
-
-### 6.4 DynamicObstacleModule — 동적 장애물 (보행자 등)
-
-| 항목 | 내용 |
-|---|---|
-| 활성 구역 | 동적 장애물 구역 (+ GPS 음영구간) |
-| 출력 | `request_stop`, `speed_limit_mps` |
-| 방식 | TTC(충돌까지 남은 시간) 기반 |
-
-```
-TTC = 경로상 남은 거리 / 접근 속도
-
-TTC < 2.0초  → 정지
-TTC < 4.0초  → 감속
-그 외        → 제한 없음
-```
-
-거리가 아니라 TTC를 쓰는 이유: 60kph에서 20m와 20kph에서 20m는 위험도가 전혀
-다르다. TTC는 속도를 자동으로 반영하므로 파라미터를 속도별로 나눌 필요가 없다.
-
-**횡방향 판정 필수**: 보행자가 인도에 있으면 멈출 필요가 없다.
-자차 경로에서 옆으로 얼마나 떨어져 있는지를 함께 본다.
-
-**히스테리시스 필수**: 보행자가 경로 밖으로 나간 뒤 바로 재출발하면
-경계에서 정지·출발을 반복하며 차가 떨린다.
-"경로 밖으로 나가고 N초 경과" 조건을 둔다.
-
-```yaml
-ttc_stop_s: 2.0            # [s] 이보다 짧으면 정지
-ttc_slow_s: 4.0            # [s] 이보다 짧으면 감속
-lateral_clear_m: 1.5       # [m] 이보다 옆으로 떨어져 있으면 무시
-resume_hold_s: 1.0         # [s] 위험 해소 후 이 시간만큼 더 기다렸다 출발
-```
-
-### 6.5 IntersectionModule — 우회전 / 좌회전
-
-| 항목 | 내용 |
-|---|---|
-| 활성 구역 | 교차로 구역 |
-| 출력 | `request_stop` |
-
-**우회전** (2026년 도로교통법 기준):
-
-```
-if (우회전 전용 신호등이 있다)
-    녹색 화살표일 때만 진행. 그 외에는 보행자가 없어도 정지.
-else if (전방 차량 신호가 적색)
-    정지선 앞에서 완전히 정지한다.
-    (속도를 줄여 천천히 지나가는 것은 위반이다. 바퀴가 완전히 멈춰야 한다)
-    정지 유지 후, 보행자가 없으면 진행.
-else  // 전방 신호 녹색
-    보행자가 건너거나 건너려 하면 정지. 없으면 서행 통과.
-```
-
-완전정지 판정 기준:
-```yaml
-full_stop_speed_mps: 0.05   # [m/s] 이 아래면 멈춘 것으로 본다
-full_stop_hold_s: 1.5       # [s] 이만큼 유지해야 "일시정지" 인정
-                            # ※ 대회 심판 기준 확인 후 조정 필요
-```
-
-**좌회전**: 좌회전 화살표 신호를 기다린다. 신호등 모듈과 로직이 같고
-"어떤 신호를 기다리는가"만 다르므로, 파라미터로 구분한다.
-
-### 6.6 GapAcceptanceModule — 회전교차로 / 차선변경 (공용)
-
-회전교차로 진입과 고속주회로 차선변경은 **판단 구조가 같다**.
-"빈 틈이 생길 때까지 기다렸다가 들어간다"는 동일한 문제다. 코드를 공유한다.
-
-| 항목 | 내용 |
-|---|---|
-| 활성 구역 | 회전교차로 구역, 고속주회로 구역 |
-| 출력 | `request_stop`, `speed_limit_mps`, `target_path_index` |
-
-```
-1. 진입 대상 차로의 차량들을 고른다
-2. 각 차량의 TTC를 계산한다
-3. 가장 임박한 TTC > 임계값 → 진입 허가
-4. 아니면 대기 (회전교차로는 정지, 차선변경은 현재 차선 유지)
-```
-
-**교착 방지 (회전교차로)**: 에이전트 3~4대가 계속 돌고 있으면 영원히 못 들어갈 수
-있다. 대기가 길어지면 임계값을 조금씩 낮춘다. 단, 최소 안전값 아래로는 내리지 않는다.
-
-```yaml
-gap_ttc_s: 5.0             # [s] 이보다 여유 있으면 진입
-gap_ttc_min_s: 3.0         # [s] 아무리 오래 기다려도 이 아래로는 안 내린다
-gap_relax_per_s: 0.2       # [s/s] 대기 1초당 임계값을 얼마나 낮출지
-```
-
-**고속주회로 차선변경 시퀀스**: 좌2회 → 우2회가 정해져 있으므로 순서대로 처리한다.
-
-```
-구간 진입 → [좌1] → [좌2] → [우1] → [우2] → 톨게이트
-```
-
-각 단계는 "안전 확인 → 실행 → 완료 판정" 3단계다.
+`/decision.reason`에 **어느 모듈이 왜** 이 값을 냈는지 한 줄 기록 → "왜 멈췄지?" 로그 추적(15분 제한 하 디버깅 필수).
 
 ---
 
-## 7. GPS 음영구간 처리
+## 7. 구현 순서 (규정 미션 순서 정렬 + 기존 코드 재사용)
 
-음영구간은 **두 문제가 겹친다.**
+**기존 3개 노드 중 2개는 코어 재사용, 1개만 교체** — 가장 적은 작업량:
 
-### 7.1 측위 문제 → 판단부 소관 아님
-
-117m를 GPS 없이 간다. 60kph면 7초 이상이다.
-추측항법은 측위 파트가 담당한다. 판단부는 `EgoState.pose_valid` 를 받아
-**속도를 낮추는** 것으로만 대응한다.
-
-### 7.2 랜덤 이벤트 → 전 모듈 활성화로 해결
-
-음영구간에서는 앞선 미션 중 하나가 랜덤 출제된다.
-별도 로직을 만들지 않는다. **모든 모듈을 켜두면 자동으로 해결된다.**
-
-이것이 이 아키텍처를 택한 가장 큰 이유다.
-
-### 7.3 구역 판정을 신뢰할 수 없다는 문제
-
-위치를 모르는데 "여기가 신호등 구역"이라고 판정할 수 없다.
-따라서 음영구간 안에서는 판단 방식을 전환한다.
-
-```
-평상시   : 구역(region) 기반 → 해당 모듈만 활성화
-음영구간 : 전 모듈 상시 활성화 → 센서에 잡히는 대로 반응
-```
-
----
-
-## 8. 외부 인터페이스 (미확정 포함)
-
-### 8.1 입력
-
-| 토픽 | 타입 | 출처 | 상태 |
-|---|---|---|---|
-| 자차 측위 | `nav_msgs/Odometry` | 측위 | 확정 |
-| 전역 경로 | `nav_msgs/Path` | 자체 | 확정 |
-| 장애물 | 미정 | 인지 | **미확정** — 임시로 MORAI ObjectInfo 사용 |
-| 신호등 | 미정 | 인지 | **미확정** — 받는 것으로 가정 |
-
-### 8.2 출력
-
-| 토픽 | 타입 | 대상 |
+| 기존 노드 | 새 역할 | 작업 |
 |---|---|---|
-| `/selected_path` | `nav_msgs/Path` | 제어 |
-| `/decision` | `katri_msgs/Decision` (신규 정의 필요) | 제어 |
+| `region_state_publisher.cpp` | **RegionResolver** | 출력을 behavior 문자열 → `MissionRegion`으로 축소. 컬러맵 PNG 룩업·covariance 기반 pose 품질 로직 **재사용** |
+| `odom_path_publisher.cpp` | **PathAdapter** | nearest_index·base_link 변환·로컬경로 추출 로직 **거의 그대로** ReferencePath 생산 |
+| `local_path_selector.cpp` | **삭제** → BehaviorModules+Arbiter+PathGenerator | 뒤엉킨 FSM 폐기, 모듈 구조로 재작성 |
 
-`/decision` 메시지 제안:
+| 단계 | 내용 | 검증 |
+|---|---|---|
+| 0 | `katri_msgs/Decision.msg` 정의 + `CMakeLists.txt` `add_message_files` 등록 | 빌드/echo |
+| 1 | 어댑터 + Arbiter + 빈 모듈 1개 (골격) | 경로 passthrough 확인 |
+| 2 | SpeedLimitModule (60 클램프 + 곡률) | 60kph 상한·급커브 이탈 없음 |
+| 2b | FollowingModule (ADAS ACC, 상시) | 앞차에 헤드웨이 유지·앞차 속도 추종, 앞차 없으면 자유주행 |
+| 3 | TrafficLightModule | 정지선 앞 정차, red→0 green→주행 |
+| 4 | StaticObstacleModule (Path Shifting) | 장애물 회피·차선 이내 |
+| 5 | DynamicObstacleModule (TTC) | 보행자 정지, 인도 보행자 무시, 떨림 없음 |
+| 6 | IntersectionModule | 우회전 완전정지, 좌회전 화살표 대기 |
+| 7 | GapAcceptanceModule (회전교차로) | 충돌없이 진입·우측 진출 |
+| 8 | GapAcceptanceModule (고주로 좌2우2) | 시퀀스대로 차선변경, 톨게이트 |
+| 9 | GPS 음영 전모듈 활성 | 터널 랜덤(장애물/끼어들기) 대응 |
 
-```
-Header  header
-float64 target_speed_kph   # 제어가 따라야 할 목표 속도
-bool    stop_required      # 정지 요구
-string  behavior           # 현재 행동 (디버깅용)
-string  reason             # 왜 이 결정인지 (디버깅용)
-```
-
-`reason` 을 넣는 이유: 주행 후 로그를 봤을 때 "여기서 왜 멈췄지?"를
-바로 알 수 있어야 한다. 이게 없으면 원인 추적에 몇 배의 시간이 든다.
+**1단계가 가장 중요**(골격 오류 시 전 단계 재작업).
 
 ---
 
-## 9. 구현 순서
+## 8. 어댑터 추상화 (소스 미정 대응)
 
-한 번에 다 만들지 않는다. 아래 순서로 하나씩 붙이고, 각 단계마다 주행 확인한다.
+`ObjectAdapter`/`TrafficAdapter`를 **인터페이스로만** 두고 소스별 구현을 교체:
+- 장애물: `katri_msgs/Objects`(차선번호+거리) 구현 / MORAI `ObjectStatusList`(ENU+size) 구현 — 둘 다 `vector<Obstacle>`로 변환.
+- 신호등: `GetTrafficLightStatus.trafficLightStatus` 비트(1=R,4=Y,16=G,32=G-left)→`TrafficLight` 매핑.
+- 정지선 거리: 토픽에 없으면 **판단부 지도 정지선 좌표 테이블**을 fallback(규정: 앞바퀴 정지선 판정 → 정밀 위치 필요).
 
-| 단계 | 내용 | 검증 방법 |
-|---|---|---|
-| 1 | 골격 (어댑터 + Arbiter + 빈 모듈 1개) | 경로가 그대로 나오는지 |
-| 2 | SpeedLimitModule | 60kph 제한이 걸리는지 |
-| 3 | TrafficLightModule | 정지선 앞에 서는지 |
-| 4 | StaticObstacleModule | 장애물을 피하는지 |
-| 5 | DynamicObstacleModule | 보행자에 멈추는지 |
-| 6 | IntersectionModule | 우회전 완전정지가 되는지 |
-| 7 | GapAcceptanceModule (회전교차로) | 진입 타이밍이 맞는지 |
-| 8 | GapAcceptanceModule (차선변경) | 좌2우2가 되는지 |
-| 9 | 음영구간 전 모듈 활성화 | 랜덤 이벤트 대응되는지 |
-
-**1단계가 가장 중요하다.** 골격이 잘못되면 2단계부터 전부 고쳐야 한다.
+모듈 코드는 내부 타입만 안다 → 인터페이스 확정 전에도 설계·테스트 진행 가능.
 
 ---
 
-## 10. 미결정 사항
+## 9. Calibration knobs (실물 튜닝 여지)
 
-| # | 항목 | 필요한 결정 |
+| 파라미터 | 초기값 | 튜닝 근거 |
 |---|---|---|
-| 1 | 신호등 토픽에 정지선 거리 포함 여부 | 인지팀 협의 |
-| 2 | 신호등의 직진/좌회전 구분 방식 | MORAI 실측 |
-| 3 | 고속주회로 구간 속도 상한 | 규정집 확인 |
-| 4 | 완전정지 판정 기준 (시간) | 규정집 심판 기준 확인 |
-| 5 | 차선변경 시 경로 전이 방식 | 설계 필요 |
-| 6 | `/decision` 메시지 최종 필드 | 제어팀 협의 |
-| 7 | 보행자 `speed=10` 의 단위 | MORAI 실측 |
+| `target_speed_margin` | 58kph | Ego Status 판정 오버슈트 방어 |
+| `full_stop_speed / hold_s` | 0.05 m/s / 1.5s | 우회전 완전정지 심판 기준(규정 미공개) |
+| `ttc_stop_s / ttc_slow_s / lateral_clear_m / resume_hold_s` | 2.0/4.0/1.5/1.0 | 보행자 실측 |
+| `acc_headway_s / acc_min_gap_m / v_desired` | 1.5s / 6.0m / 58kph | ADAS 앞차 추종 헤드웨이·최소간격 |
+| `lateral_margin / max_shift` | 0.5 / 차선폭 | 차폭 1.892m + 객체 크기 |
+| `gap_ttc_s / gap_ttc_min_s / relax_per_s` | 5.0/3.0/0.2 | 회전교차로 교착 vs 안전(15분 제한) |
+| `highway_limit` | 미정 | 규정집 고주로 상한 확인 필요 |
+
+---
+
+## 10. 검증
+
+- **단위 테스트**: 각 `evaluate()`는 순수 함수 → 시뮬 없이 입력 fixture로 assert. 최소 각 모듈 1개 self-check.
+- **통합**: 예제 시나리오(수령 후) rosbag 재생 → `/selected_path`·`/decision` rviz 확인.
+- **미션별 주행**: §7 단계별 검증 항목대로.
+
+---
+
+## 11. 열린 항목 (구현 전 확정 필요)
+
+1. **장애물 인지 메시지 스펙** — `katri_msgs/Object`는 폭/길이/ENU/ID가 없어 Path Shifting의 s/d 투영·충돌마진 계산 불가. 인지팀 필드확장 or MORAI `ObjectStatusList` 임시채택 결정 필요. **1단계 진입 전 최우선.**
+2. 신호등 정지선 거리 포함 여부 (인지 협의) — 없으면 지도 테이블.
+3. 신호등 직진/좌회전 구분 실측 (MORAI).
+4. 고주로 구간 속도 상한 규정 확인.
+5. 우회전 완전정지 심판 기준(시간).
+6. `/decision` 최종 필드 (제어팀 협의).
+7. 미션 지도·예제 시나리오 파일 수령 → RegionResolver 좌표/시퀀스 확정.

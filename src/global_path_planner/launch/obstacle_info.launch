@@ -1,0 +1,5 @@
+<launch>
+  <!-- /Object_topic + /Ego_topic → /obstacle_info (base_link 상대좌표) -->
+  <node name="obstacle_info_publisher" pkg="global_path_planner"
+        type="obstacle_info_publisher" output="screen" respawn="true" />
+</launch>

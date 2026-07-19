@@ -1,0 +1,649 @@
+#include <ros/ros.h>
+#include <math.h>
+#include <geometry_msgs/Point.h>
+#include <geometry_msgs/Twist.h>
+#include <nav_msgs/Odometry.h>
+#include <nav_msgs/Path.h>
+#include <tf/transform_datatypes.h>
+#include <visualization_msgs/Marker.h>
+#include <std_msgs/String.h>
+#include <std_msgs/Float64.h>
+#include <std_msgs/Int16.h>
+#include <geometry_msgs/TwistWithCovarianceStamped.h>
+#include <iomanip>
+#include <algorithm>
+#include <limits>
+#include <vector>
+#include <iostream>
+#include <morai_msgs/CtrlCmd.h>
+#include <morai_msgs/EgoVehicleStatus.h>
+
+class HybridControl {
+public: 
+    HybridControl();
+    ~HybridControl();
+    void run();
+    void speed_control(const double curvature); 
+    void steer_control(const double curvature);
+
+    double getCrossTrackError(const geometry_msgs::Point& front_axle_position, const geometry_msgs::Point& closest_point);
+    double getPathYawFromPoint(const nav_msgs::Path& path, const geometry_msgs::Point& closest_point);
+    double calculateCurvature(const nav_msgs::Path& path, const geometry_msgs::Point& closest_point);
+    double applyKalmanFilter(double measured_curvature);
+
+    geometry_msgs::Point calculateFrontAxlePosition(double front_axle_offset);
+    geometry_msgs::Point findClosestPathPoint(const nav_msgs::Path& path, const geometry_msgs::Point& front_axle_position);
+
+private:
+    ros::NodeHandle nh;
+    ros::Publisher cmd_vel_pub, ctrl_cmd_pub, rmse_pub, curvature_pub, hde_pub, cte_pub, vel_pub, penalty_pub;
+    ros::Subscriber gps_sub, ego_vehicle_sub, local_path_sub, speed_control_sub, state_sub, acc_sub;
+
+    nav_msgs::Path localpath;
+    geometry_msgs::Point current_position;
+
+    geometry_msgs::Twist cmd_vel_msg;
+    morai_msgs::CtrlCmd ctrl_cmd_msg;
+
+    double LD;
+    double target_vel, current_vel;
+    double current_vel_print;
+    double vehicle_yaw;
+    double vehicle_length;
+    double front_axle_offset;
+    double steer_state;
+    std::string map_state = "go";
+    std::string car_state = "fast";
+
+    bool is_look_forward_point;
+    bool gps_state, path_state, vehicle_info;
+    int frequency;
+    double dt_;
+    double localpath_yaw;
+    double k = 1.4; //origin 1.4
+    double k_p;
+    double k_s;
+    double gain_pp, gain_st;
+    double steer_lpf_alpha;
+    double prev_steer_cmd;
+    bool steer_lpf_initialized;
+    double vel_penalty = 0.0;
+    double steer_ratio = 0.0;
+    double cte_sum;       // CTE의 제곱 합
+    int cte_count;        // CTE 샘플 수
+
+    // 칼만 필터 관련 변수
+    double curvature_estimate;    // 추정된 곡률
+    double estimate_uncertainty;   // 추정 불확실성
+    double measurement_noise;      // 측정 노이즈
+    double process_noise;         // 프로세스 노이즈
+
+    bool use_morai_sim;
+    std::string mode;
+
+    std::string gps_topic;
+    std::string local_path_topic;
+    std::string map_state_topic;
+    std::string car_state_topic;
+    std::string real_velocity_topic;
+    std::string morai_ego_topic;
+    std::string cmd_vel_topic;
+    std::string ctrl_cmd_topic;
+    std::string acc_speed_topic;
+    double morai_velocity_scale;
+    double acc_cap_kph_ = 1e9;   // ADAS/ACC 목표속도 상한(kph). acc_node 없으면 무제한 → 제어기 자체값 사용.
+    void GPSCallBack(const nav_msgs::Odometry::ConstPtr& msg);
+    void AccSpeedCallBack(const std_msgs::Float64::ConstPtr& msg);
+    void EgoVehicleRealCallBack(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg);
+    void EgoVehicleMoraiCallBack(const morai_msgs::EgoVehicleStatus::ConstPtr& msg);
+    void LocalPathCallBack(const nav_msgs::Path::ConstPtr& msg);
+    void SpeedControlCallBack(const std_msgs::String::ConstPtr& msg);
+    void StateCallBack(const std_msgs::String::ConstPtr& msg);
+    void publishControlCommand(double velocity_cmd, double steer_cmd);
+};
+
+HybridControl::HybridControl() 
+    : nh("~"),
+       
+        LD(10), // init
+        target_vel(100), // init
+        current_vel(0),
+        current_vel_print(0),
+        vehicle_yaw(0.0),
+        vehicle_length(1.04),
+        front_axle_offset(1.04),
+        is_look_forward_point(false),
+        gps_state(false),
+        path_state(false),
+        vehicle_info(false),
+        frequency(50),
+        dt_(1.0 / frequency),
+        curvature_estimate(0.0),
+        estimate_uncertainty(1.0),
+        measurement_noise(0.1),      // 조정 가능
+        process_noise(0.01),         // 조정 가능
+        cte_sum(0.0),
+        cte_count(0),
+        steer_lpf_alpha(0.3), 
+        prev_steer_cmd(0.0),
+        steer_lpf_initialized(false),
+        use_morai_sim(false),
+        mode("real")
+    {
+        nh.param<std::string>("mode", mode, std::string("real"));
+        use_morai_sim = (mode == "morai" || mode == "morai_sim");
+
+        nh.param<std::string>("gps_topic", gps_topic, std::string("/gps_utm_odom"));
+        nh.param<std::string>("local_path_topic", local_path_topic, std::string("/selected_path"));
+        nh.param<std::string>("map_state_topic", map_state_topic, std::string("/region"));  //기존 state
+        nh.param<std::string>("car_state_topic", car_state_topic, std::string("/decision")); //기존 speed_control
+        nh.param<std::string>("real_velocity_topic", real_velocity_topic, std::string("/gps_data/fix_velocity"));
+        nh.param<std::string>("morai_ego_topic", morai_ego_topic, std::string("/morai/ego_topic"));
+        nh.param<std::string>("cmd_vel_topic", cmd_vel_topic, std::string("/cmd_vel"));
+        nh.param<std::string>("ctrl_cmd_topic", ctrl_cmd_topic, std::string("/ctrl_cmd"));
+        nh.param<std::string>("acc_speed_topic", acc_speed_topic, std::string("/acc/target_speed"));
+        // real command unit -> MORAI km/h conversion (default: 1000 == 20 km/h)
+        nh.param("morai_velocity_scale", morai_velocity_scale, 0.02);
+        nh.param("steer_lpf_alpha", steer_lpf_alpha, 0.10 );  //기존 0.3 --> 0.2 -->0.15 줄이면 LPF 많이 개입, 플랫폼: 0.15 (1.0인 경우 LPF off)
+        gps_sub = nh.subscribe(gps_topic, 1, &HybridControl::GPSCallBack, this);
+        local_path_sub = nh.subscribe(local_path_topic, 1, &HybridControl::LocalPathCallBack, this);
+        speed_control_sub = nh.subscribe(map_state_topic, 1, &HybridControl::SpeedControlCallBack, this);
+        state_sub = nh.subscribe(car_state_topic, 1, &HybridControl::StateCallBack, this);
+        acc_sub = nh.subscribe(acc_speed_topic, 1, &HybridControl::AccSpeedCallBack, this);
+
+        if (use_morai_sim) {
+            ego_vehicle_sub = nh.subscribe(morai_ego_topic, 1, &HybridControl::EgoVehicleMoraiCallBack, this);
+            ctrl_cmd_pub = nh.advertise<morai_msgs::CtrlCmd>(ctrl_cmd_topic, 1);
+            ctrl_cmd_msg = morai_msgs::CtrlCmd();
+            ctrl_cmd_msg.longlCmdType = 2;
+        } else {
+            ego_vehicle_sub = nh.subscribe(real_velocity_topic, 1, &HybridControl::EgoVehicleRealCallBack, this);
+            cmd_vel_pub = nh.advertise<geometry_msgs::Twist>(cmd_vel_topic, 1);
+            cmd_vel_msg = geometry_msgs::Twist();
+        }
+
+        rmse_pub = nh.advertise<std_msgs::Float64>("/rmse", 10);
+        curvature_pub = nh.advertise<std_msgs::Float64>("/curvature", 10);
+        hde_pub = nh.advertise<std_msgs::Float64>("/heading_error", 10);
+        cte_pub = nh.advertise<std_msgs::Float64>("/cross_track_error", 10);
+        vel_pub = nh.advertise<std_msgs::Float64>("/target_vel", 10);
+        penalty_pub = nh.advertise<std_msgs::Float64>("/penalty", 10);
+
+        ROS_INFO("HybridControl mode: %s", mode.c_str());
+        ROS_INFO("HybridControl morai_velocity_scale: %.6f", morai_velocity_scale);
+        ROS_INFO("HybridControl steer_lpf_alpha: %.3f", steer_lpf_alpha);
+    }
+
+HybridControl::~HybridControl() {
+}
+
+void HybridControl::GPSCallBack(const nav_msgs::Odometry::ConstPtr& msg) {
+    gps_state = true;
+
+    tf::Quaternion q(
+        msg->pose.pose.orientation.x,
+        msg->pose.pose.orientation.y,
+        msg->pose.pose.orientation.z,
+        msg->pose.pose.orientation.w
+    );
+    tf::Matrix3x3 m(q);
+    double roll, pitch, yaw;
+    m.getRPY(roll, pitch, yaw);
+
+    vehicle_yaw = yaw;
+    current_position.x = msg->pose.pose.position.x;
+    current_position.y = msg->pose.pose.position.y;
+    current_position.z = msg->pose.pose.position.z;
+}
+
+void HybridControl::EgoVehicleRealCallBack(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg) {
+    vehicle_info = true;
+    current_vel = sqrt(pow(msg->twist.twist.linear.x, 2) + pow(msg->twist.twist.linear.y, 2)) * 3.6;
+    current_vel_print = (msg->twist.twist.linear.x <= 0.0) ? 0.0 : (msg->twist.twist.linear.x * 50.0);
+}
+
+void HybridControl::EgoVehicleMoraiCallBack(const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
+    vehicle_info = true;
+    current_vel = msg->velocity.x * 3.6;
+    current_vel_print = (msg->velocity.x <= 0.0) ? 0.0 : (msg->velocity.x * 50.0);
+}
+
+void HybridControl::AccSpeedCallBack(const std_msgs::Float64::ConstPtr& msg) {
+    // ADAS/ACC 목표속도 상한(kph). 설계의 "속도 = min 중재"와 동일 — velocity 를 이 값으로 캡.
+    acc_cap_kph_ = msg->data;
+}
+
+void HybridControl::publishControlCommand(double velocity_cmd, double steer_cmd) {
+    if (use_morai_sim) {
+        double morai_velocity_kph = std::max(0.0, velocity_cmd * morai_velocity_scale);
+        morai_velocity_kph = std::min(morai_velocity_kph, acc_cap_kph_);  // ADAS/ACC 속도 상한 적용
+        ctrl_cmd_msg.velocity = morai_velocity_kph;
+        // Final computed steer_cmd is real-vehicle sign; MORAI uses opposite sign.
+        ctrl_cmd_msg.steering = steer_cmd;
+        ctrl_cmd_pub.publish(ctrl_cmd_msg);
+    } else {
+        cmd_vel_msg.linear.x = std::max(0.0, velocity_cmd);
+        cmd_vel_msg.angular.z = -steer_cmd;
+        cmd_vel_pub.publish(cmd_vel_msg);
+    }
+}
+
+void HybridControl::LocalPathCallBack(const nav_msgs::Path::ConstPtr& msg) {
+    path_state = true;
+    localpath = *msg;
+}
+
+void HybridControl::SpeedControlCallBack(const std_msgs::String::ConstPtr& msg) {
+    map_state = msg->data;
+}
+
+void HybridControl::StateCallBack(const std_msgs::String::ConstPtr& msg) {
+    car_state = msg->data;
+}
+
+///////////////////// <<<<튜닝>>>> ///////////////////////////////////////
+void HybridControl::speed_control(const double curvature) {
+    const double MAX = 1000.0;  //1100
+    const double MIDDLE = 1000.0;  //1000 
+    const double CURV = 1000.0;
+    const double CURVATURE_THRESHOLD = 0.01;  // 곡률 임계값
+    const double CURVATURE_FACTOR = 3000.0;    // 곡률에 따른 감속 계수 (1000 -> 1350) ->2500 ->3000
+    // 곡률에 따른 속도 계산
+    if (abs(curvature) > CURVATURE_THRESHOLD) {
+        vel_penalty = std::min(MAX * 0.5, abs(curvature) * CURVATURE_FACTOR);  //origin 0.5
+    } else {
+        vel_penalty = 0.0; 
+    } 
+
+    double target_vel_over = std::max(MAX - vel_penalty, 300.0); // 곡률에 따른 속도 감소 적용 300.0
+    double target_vel_go = std::max(MIDDLE - vel_penalty, 300.0);
+    double target_vel_slow = std::max(CURV - vel_penalty, 300.0);
+    double target_vel_warning = std::max(MIDDLE - vel_penalty, 300.0);
+    double target_vel_curve = std::max(MIDDLE - vel_penalty, 300.0);
+    if (map_state == "go"){
+        if (car_state == "fast"){
+            target_vel = target_vel_go;
+        } else if (car_state == "slow_down") {
+            target_vel = target_vel_go * 0.7;
+        } else if (car_state == "stop") {
+            target_vel = 0.0;
+        } else {
+            target_vel = target_vel_go * 0.7; // 예외
+        }
+    } else if (map_state == "overtake"){
+        if (car_state == "fast"){
+            target_vel = target_vel_over;
+        } else if (car_state == "slow_down") {
+            target_vel = 800;
+        } else if (car_state == "stop") {
+            target_vel = 0.0;
+        } else if (car_state == "change") {
+            target_vel = 700.0; // 차선 변경 시 속도
+        } else if (car_state == "fast_lc") {
+            target_vel = 700.0; // 차선 변경 시 속도 유지
+
+        } else {
+            target_vel = target_vel_over * 0.75; // 예외
+        }
+    } else if (map_state == "slow"){
+        if (car_state == "fast"){
+            target_vel = target_vel_slow;
+        } else if (car_state == "slow_down") {
+            target_vel = target_vel_slow * 0.7;
+        } else if (car_state == "stop") {
+            target_vel = 0.0;
+        } else if (car_state == "change") {
+            target_vel = target_vel_slow * 0.7;    
+        } else {
+            target_vel = target_vel_slow * 0.7; // 예외
+        }
+    } else if (map_state == "warning"){
+        if (car_state == "fast"){
+            target_vel = target_vel_warning;
+        } else if (car_state == "slow_down") {
+            target_vel = target_vel_warning * 0.7;
+        } else if (car_state == "stop") {
+            target_vel = 0.0;
+        } else if (car_state == "change") {
+            target_vel = target_vel_warning * 0.7;
+        } else {
+            target_vel = target_vel_warning * 0.7; // 예외
+        }
+    } else if (map_state == "curve"){
+        if (car_state == "fast"){
+            target_vel = target_vel_curve;
+        } else if (car_state == "slow_down") {
+            target_vel = target_vel_curve * 0.7;
+        } else if (car_state == "stop") {
+            target_vel = 0.0;
+        } else if (car_state == "change") {
+            target_vel = target_vel_curve * 0.7;
+        } else {
+            target_vel = target_vel_curve * 0.7; // 예외
+        }
+    } else {
+        target_vel = target_vel_curve; // 속도 감소 적용
+    }
+    
+    // LD 값 설정
+    const double BASE_LFW = 7.0;    // 기본 Look-ahead distance   기존 6 ->7->8
+    const double MIN_LFW = 6.0;     // 최소 Look-ahead distance   기존 5 ->6->7
+    const double MAX_LFW = 9.0;     // 최대 Look-ahead distance  기존 7  ->8->9
+
+    // 곡률에 따른 Lfw 계산
+    if (abs(curvature) > CURVATURE_THRESHOLD) {
+        // 곡률이 큰 경우 Lfw 감소
+        double raw_lfw = BASE_LFW - (abs(curvature) * 15.0);  //기존 15
+        this->LD = std::max(MIN_LFW, raw_lfw);
+   
+    } else if (car_state == "fast_lc") {
+        this->LD = 7;
+    } else if (car_state == "change") {
+        this->LD = 7;    
+    } else {
+        // 직선 구간에서는 속도에 비례
+        double raw_lfw = BASE_LFW + (this->current_vel * 0.4);
+        this->LD = std::min(MAX_LFW, raw_lfw);
+    } 
+
+}
+
+void HybridControl::steer_control(const double curvature) {
+    // k_p 값 설정
+    constexpr double MAX = 0.95;           //직선에서도 st 약간
+    const double CURVATURE_THRESHOLD = 0.01;  // 곡률 임계값
+    const double CURVATURE_FACTOR = 4.0;    // 곡률에 따른 stanley 계수 곡률*FACTOR 곡률 심한거 0.1로 설정해서 절반으로 때린 값 5  여기도 튜닝필요
+
+    if (abs(curvature) > CURVATURE_THRESHOLD) {
+        steer_ratio = abs(curvature) * CURVATURE_FACTOR;
+    } else {
+        steer_ratio = 0.0;
+    }
+    k_p = std::min(MAX - steer_ratio, MAX); // 곡률에 따른 k_p 값 조정
+    k_s = 1.0 - k_p;
+}
+///////////////////////////////////////////////////////////////////////////
+
+double HybridControl::calculateCurvature(const nav_msgs::Path& path, const geometry_msgs::Point& closest_point)
+{
+    auto it = std::find_if(path.poses.begin(), path.poses.end(), 
+        [&closest_point](const auto& pose_stamped) {
+            return pose_stamped.pose.position.x == closest_point.x && 
+                   pose_stamped.pose.position.y == closest_point.y;
+    });
+
+    if (it == path.poses.end()) return 0.0;
+
+    // 고정된 곡률 계산 구간 설정
+    const double CURVATURE_CALC_DIST = 7.0;  // 7m 구간에서 곡률 계산
+
+    // 현재 위치에서 일정 거리만큼의 점들 수집
+    std::vector<geometry_msgs::Point> curve_points;
+    double accumulated_dist = 0.0;
+    auto current = it;
+    
+    while (current != path.poses.end() && accumulated_dist < CURVATURE_CALC_DIST) {
+        curve_points.push_back(current->pose.position);
+        
+        if (std::next(current) != path.poses.end()) {
+            double dx = std::next(current)->pose.position.x - current->pose.position.x;
+            double dy = std::next(current)->pose.position.y - current->pose.position.y;
+            accumulated_dist += std::hypot(dx, dy);
+        }
+        current = std::next(current);
+    }
+
+    // 충분한 점이 없으면 반환
+    if (curve_points.size() < 3) return 0.0;
+
+    // 시작, 중간, 끝 점 선택
+    const auto& p1 = curve_points.front();
+    const auto& p2 = curve_points[curve_points.size()/2];
+    const auto& p3 = curve_points.back();
+
+    // Menger 곡률 계산
+    double x1 = p1.x, y1 = p1.y;
+    double x2 = p2.x, y2 = p2.y;
+    double x3 = p3.x, y3 = p3.y;
+
+    double area = ((x2-x1)*(y3-y1) - (x3-x1)*(y2-y1)) / 2.0;
+    double d1 = std::hypot(x2-x1, y2-y1);
+    double d2 = std::hypot(x3-x2, y3-y2);
+    double d3 = std::hypot(x1-x3, y1-y3);
+
+    if (d1 * d2 * d3 == 0) return 0.0;
+
+    double measured_curvature = std::abs(4 * area / (d1 * d2 * d3));
+    
+    // 칼만 필터 적용
+    double filtered_curvature = applyKalmanFilter(measured_curvature);
+    
+    return filtered_curvature;
+}
+
+double HybridControl::applyKalmanFilter(double measured_curvature) {
+    // Predict
+    double prediction = curvature_estimate;
+    estimate_uncertainty += process_noise;
+
+    // Update
+    double kalman_gain = estimate_uncertainty / (estimate_uncertainty + measurement_noise);
+    curvature_estimate = prediction + kalman_gain * (measured_curvature - prediction);
+    estimate_uncertainty = (1 - kalman_gain) * estimate_uncertainty;
+
+    return curvature_estimate;
+}
+
+double HybridControl::getPathYawFromPoint(const nav_msgs::Path& path, const geometry_msgs::Point& closest_point) 
+{
+    auto it = std::find_if(path.poses.begin(), path.poses.end(), [&closest_point](const auto& pose_stamped) {
+        return pose_stamped.pose.position.x == closest_point.x && pose_stamped.pose.position.y == closest_point.y;
+    });
+
+    if (it != path.poses.end() && std::next(it) != path.poses.end()) {
+        const auto& next_point = std::next(it)->pose.position;
+        double dx = next_point.x - closest_point.x;
+        double dy = next_point.y - closest_point.y;
+        return atan2(dy, dx);
+    } else {
+        return 0.0;
+    }
+}
+
+double HybridControl::getCrossTrackError(const geometry_msgs::Point& front_axle_position, const geometry_msgs::Point& closest_point)
+{
+    double dx = closest_point.x - front_axle_position.x;
+    double dy = closest_point.y - front_axle_position.y;
+
+    double angle = atan2(dy, dx);
+    double error_distance = -sqrt(dx * dx + dy * dy) * sin(angle);
+
+    return error_distance;
+}
+
+geometry_msgs::Point HybridControl::findClosestPathPoint(const nav_msgs::Path& path, const geometry_msgs::Point& front_axle_position)
+{
+    double min_distance = std::numeric_limits<double>::max();
+    geometry_msgs::Point closest_point;
+
+    for (const auto& pose_stamped : path.poses)
+    {
+        double distance = std::hypot(front_axle_position.x - pose_stamped.pose.position.x, 
+                                     front_axle_position.y - pose_stamped.pose.position.y);
+        if (distance < min_distance)
+        {
+            min_distance = distance;
+            closest_point = pose_stamped.pose.position;
+        }
+    }
+
+    return closest_point;
+}
+
+geometry_msgs::Point HybridControl::calculateFrontAxlePosition(double front_axle_offset) 
+{
+    geometry_msgs::Point front_axle_position;
+    
+    front_axle_offset = 1.04;
+
+    front_axle_position.x = front_axle_offset;
+
+    return front_axle_position;
+}
+
+void HybridControl::run() {
+    ros::Rate rate(frequency);
+
+    while (ros::ok()) {
+        if (gps_state && path_state && vehicle_info) {
+            is_look_forward_point = false;
+
+            for (const auto& pose : localpath.poses) {
+                double x = pose.pose.position.x;
+                double y = pose.pose.position.y;
+                double dis = sqrt(x * x + y * y);
+
+
+                if (LD <= dis && dis < LD + 10) {
+                    is_look_forward_point = true;
+
+                    double alpha = atan2(y, x);  // 목표점과 차량의 상대 각도
+                    double steer_p = atan2((2 * vehicle_length * sin(alpha)), LD);
+
+                    geometry_msgs::Point front_axle_position = calculateFrontAxlePosition(front_axle_offset);
+                    geometry_msgs::Point closest_point = findClosestPathPoint(this->localpath, front_axle_position);
+
+                    double pathYaw = getPathYawFromPoint(this->localpath, closest_point);
+                    double crossTrackError = getCrossTrackError(closest_point, front_axle_position); //부호 이상하면 여기 스위칭 (sim에선 closet, front 순서)
+                    double headingError = pathYaw - vehicle_yaw;
+                    while (headingError > M_PI) {
+                        headingError -= 2 * M_PI;
+                    }
+                    while (headingError < -M_PI) {
+                        headingError += 2 * M_PI;
+                    }
+                    double cte_term = atan2(k * crossTrackError, this->current_vel);
+                    double steer_s = pathYaw + cte_term;
+                    double curvature = calculateCurvature(this->localpath, closest_point);
+
+                    while (steer_s > M_PI){
+                        steer_s -= 2 * M_PI;
+                    }
+                    while (steer_s < -M_PI){
+                        steer_s +=  2 * M_PI;
+                    }
+                    
+                    if (map_state == "overtake")
+                    {
+                        gain_pp = 1.0;
+                        gain_st = 1.0;
+                    }
+                    else
+                    {
+                        gain_pp = 1.1;
+                        gain_st = 0.9;
+                    }
+
+
+                    speed_control(curvature);
+                    steer_control(curvature);
+
+                    // double steer_hy = steer_p * k_p + steer_s * k_s;    //gain_pp, gain_st 제거한 상태
+                    double steer_hy = steer_p * 0.95  + steer_s * 0.05;  ///////////////////////////////////////////////////////튜닝
+
+                    // Unknown map_state fallback: keep pure pursuit steering.
+                    steer_state = steer_p;
+                    if (map_state == "go" || map_state == "slow" || map_state == "warning"){
+                        // steer_state = applyKalmanFilter(steer_hy);
+                        steer_state = steer_p;
+                    } else if (map_state == "overtake"){
+                     
+                        steer_state = steer_p;
+
+                    } else if (map_state == "curve"){
+                        steer_state = steer_p;
+                    }
+
+                    const double alpha_lpf = std::max(0.0, std::min(1.0, steer_lpf_alpha));
+                    if (!steer_lpf_initialized) {
+                        prev_steer_cmd = steer_state;
+                        steer_lpf_initialized = true;
+                    } else {
+                        steer_state = alpha_lpf * steer_state + (1.0 - alpha_lpf) * prev_steer_cmd;
+                        prev_steer_cmd = steer_state;
+                    }
+
+                    double steer = std::max(-35 * M_PI / 180, std::min(steer_state, 35 * M_PI / 180));
+
+                    if (target_vel < 0) {
+                        target_vel = 1;
+                    }
+
+                    std_msgs::Float64 heading_error_msg;
+                    heading_error_msg.data = headingError;
+                    hde_pub.publish(heading_error_msg);
+
+                    std_msgs::Float64 cross_track_error_msg;
+                    cross_track_error_msg.data = crossTrackError;
+                    cte_pub.publish(cross_track_error_msg);
+
+                    publishControlCommand(target_vel, steer);
+
+                    // RMSE 계산
+                    this->cte_sum += crossTrackError * crossTrackError;  // CTE 제곱 합
+                    this->cte_count++;                                  // CTE 샘플 수 증가
+                    double rmse = std::sqrt(this->cte_sum / this->cte_count);  // RMSE 계산
+
+                    std::cout << std::fixed << std::setprecision(2);
+                    std::cout << "steering_nonfil: " << steer_hy * 180 / M_PI <<std::endl;
+                    std::cout << "k_p : " << k_p << " | k_s : " << k_s << std::endl;
+                    std::cout << "pathYaw : " << pathYaw << " | CTE : " << crossTrackError << " | LD : " << LD << std::endl;
+                    std::cout << "steer : " << steer * 180 / M_PI << " | steer_s : " << steer_s * 180 / M_PI << " | steer_p : " << steer_p * 180 / M_PI << std::endl;
+                    std::cout << "Target Vel : " << target_vel << " | Current Vel : " << current_vel_print  << std::endl;
+                    std::cout << "curvature : " << curvature << " | vel_penalty : " << vel_penalty << std::endl;
+                    std::cout << "Map_state :" << map_state << " | Car_state :" << car_state << std::endl;
+                    std::cout << "RMSE : " << rmse << std::endl;
+                    
+                    break;
+                }
+            }
+        }
+        else {
+            is_look_forward_point = false;
+            publishControlCommand(0.0, 0.0);
+        }
+
+        if (!is_look_forward_point) {
+            publishControlCommand(0.0, 0.0);
+        }
+        if (!gps_state) {
+            std::cout << "gps_state check" << std::endl;
+        }
+        if (!path_state) {
+            std::cout << "path_state check"<< std::endl;
+        }
+        if (!vehicle_info) {
+            std::cout << "vehicle_info check" << std::endl;
+        }
+        std::cout << "=================================================================" << std::endl;
+        // std::cout << use_morai_sim << std::endl;
+
+        ros::spinOnce();
+        rate.sleep();
+    }
+}
+
+int main(int argc, char** argv) {
+    ros::init(argc, argv, "HybridControl_Robo");
+
+    HybridControl hc;
+    
+    ros::Rate rate(50);
+
+    while (ros::ok()) {
+        hc.run();
+        rate.sleep();
+    }
+
+    return 0;
+}

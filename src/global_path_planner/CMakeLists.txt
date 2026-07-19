@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_ros
   tf2
   katri_msgs
+  morai_msgs
 )
 find_package(OpenCV REQUIRED)
 
@@ -96,6 +97,14 @@ target_link_libraries(ai_local_path_selector ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_executable(region_state_publisher src/region_state_publisher.cpp)
 add_dependencies(region_state_publisher ${catkin_EXPORTED_TARGETS})
 target_link_libraries(region_state_publisher ${catkin_LIBRARIES} ${OpenCV_LIBS})
+
+add_executable(obstacle_info_publisher src/obstacle_info_publisher.cpp)
+add_dependencies(obstacle_info_publisher ${catkin_EXPORTED_TARGETS})
+target_link_libraries(obstacle_info_publisher ${catkin_LIBRARIES})
+
+add_executable(acc_node src/acc_node.cpp)
+add_dependencies(acc_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(acc_node ${catkin_LIBRARIES})
 
 add_executable(ai_region_state_publisher src/NOT_USED/ai_region_state_publisher.cpp)
 add_dependencies(ai_region_state_publisher ${catkin_EXPORTED_TARGETS})

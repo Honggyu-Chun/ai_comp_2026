@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 무장애물 60kph 안정 주행 브링업.
+     라이브(MORAI): /gps, /Ego_topic, /Object_topic 존재 가정. 차량 AutoMode + D기어, ctrl UDP 포트 일치 필요.
+     체인: /gps → ll2utm → /gps_utm_odom
+           2026 전역경로 → /global_path1 → odom_path → /local_path1(base_link)
+           acc_node → /acc/target_speed(60kph)
+           hybrid_curv_real(로컬경로 추종 + acc 속도캡) → /ctrl_cmd → control_udp → sim -->
+<launch>
+  <arg name="global_path_file" default="2026_molit_comp_global_path" />
+  <arg name="morai_velocity_scale" default="0.06" />   <!-- 1000*0.06 = 60kph 상한 -->
+  <arg name="ctrl_port" default="9095" />
+
+  <!-- 1) 측위: /gps → /gps_utm_odom (속도는 /Ego_topic 사용, EKF 미사용) -->
+  <node name="ll2utm" pkg="global_path_planner" type="ll2utm.py" respawn="true">
+    <param name="gps_topic" value="/gps" />
+    <param name="ego_topic" value="/Ego_topic" />
+    <param name="odom_topic" value="/gps_utm_odom" />
+    <param name="east_offset" value="302595.0" />   <!-- UTM→로컬: 2026 전역경로 프레임 정합 -->
+    <param name="north_offset" value="4124145.0" />
+    <param name="use_ego_speed" value="true" />
+    <param name="use_ego_heading" value="false" />
+    <param name="use_ego_position" value="false" />
+    <param name="heading_offset_deg" value="-1.38" />
+    <param name="debug_print" value="false" />
+  </node>
+
+  <!-- 2) 전역경로 발행 → /global_path1 (frame map, latched) -->
+  <node name="global_path_publisher1" pkg="global_path_planner" type="global_path_publisher.py" respawn="true">
+    <param name="package_name" value="global_path_planner" type="str" />
+    <param name="folder_name" value="path_data" type="str" />
+    <param name="file_name" value="$(arg global_path_file)" type="str" />
+    <param name="topic_name" value="/global_path1" type="str" />
+    <param name="frame_id" value="map" type="str" />
+    <param name="debug" value="false" type="bool" />
+    <param name="latch" value="true" type="bool" />
+    <param name="republish_hz" value="0.0" type="double" />
+  </node>
+
+  <!-- 3) 전역경로 → base_link 로컬경로 /local_path1 (닫힌 루프) -->
+  <node name="odom_path_publisher" pkg="global_path_planner" type="odom_path_publisher" respawn="true">
+    <param name="odom_topic" value="/gps_utm_odom" type="str" />
+    <param name="global_path1_topic" value="/global_path1" type="str" />
+    <param name="local_path1_topic" value="/local_path1" type="str" />
+    <param name="current_path_topic" value="/current_path" type="str" />
+    <param name="local_frame_id" value="base_link" type="str" />
+    <param name="is_circular_path" value="true" type="bool" />
+    <param name="front_distance" value="50.0" type="double" />
+    <param name="back_distance" value="2.0" type="double" />
+  </node>
+
+  <!-- 4) ADAS/ACC: /obstacle_info + /Ego_topic → /acc/target_speed(60kph, 무장애물 시) -->
+  <node name="acc_node" pkg="global_path_planner" type="acc_node" output="screen" respawn="true">
+    <param name="v_set_kph" value="60.0" />
+  </node>
+
+  <!-- 5) 제어기: /local_path1 추종 + acc 속도캡 → /ctrl_cmd (longlCmdType=2 velocity+steering) -->
+  <include file="$(find purepursuit)/launch/hybrid_curv_real_mode.launch">
+    <arg name="mode" value="morai" />
+    <arg name="local_path_topic" value="/local_path1" />
+    <arg name="gps_topic" value="/gps_utm_odom" />
+    <arg name="morai_ego_topic" value="/Ego_topic" />
+    <arg name="morai_velocity_scale" value="$(arg morai_velocity_scale)" />
+    <arg name="ctrl_cmd_topic" value="/ctrl_cmd" />
+  </include>
+
+  <!-- 6) /ctrl_cmd → UDP → MORAI sim -->
+  <include file="$(find morai_gadis_set)/launch/control_udp_pub.launch">
+    <arg name="cmd_topic" value="/ctrl_cmd" />
+    <arg name="ctrl_port" value="$(arg ctrl_port)" />
+  </include>
+</launch>

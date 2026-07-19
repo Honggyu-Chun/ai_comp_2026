@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <!-- mode: real | morai -->
+  <arg name="mode" default="morai" />
+
+  <!-- common topics -->
+  <arg name="gps_topic" default="/gps_utm_odom" />
+  <arg name="local_path_topic" default="/selected_path" />
+  <arg name="map_state_topic" default="/region" />
+  <arg name="car_state_topic" default="/decision" />
+
+  <!-- mode-specific topics -->
+  <arg name="real_velocity_topic" default="/gps_data/fix_velocity" />
+  <arg name="morai_ego_topic" default="/Ego_topic" />
+  <arg name="cmd_vel_topic" default="/cmd_vel" />
+  <arg name="ctrl_cmd_topic" default="/ctrl_cmd" />
+  <!-- real internal velocity unit -> MORAI velocity (kph), default 1000 -> 20 -->
+  <arg name="morai_velocity_scale" default="0.02" />
+
+  <node pkg="purepursuit" type="hybrid_curv_real" name="hybrid_curv_real" output="screen">
+    <param name="mode" value="$(arg mode)" />
+
+    <param name="gps_topic" value="$(arg gps_topic)" />
+    <param name="local_path_topic" value="$(arg local_path_topic)" />
+    <param name="map_state_topic" value="$(arg map_state_topic)" />
+    <param name="car_state_topic" value="$(arg car_state_topic)" />
+
+    <param name="real_velocity_topic" value="$(arg real_velocity_topic)" />
+    <param name="morai_ego_topic" value="$(arg morai_ego_topic)" />
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)" />
+    <param name="ctrl_cmd_topic" value="$(arg ctrl_cmd_topic)" />
+    <param name="morai_velocity_scale" value="$(arg morai_velocity_scale)" />
+  </node>
+</launch>

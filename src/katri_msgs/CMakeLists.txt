@@ -50,6 +50,8 @@ add_message_files(
   FILES
   Object.msg
   Objects.msg
+  ObstacleInfo.msg
+  ObstacleInfoArray.msg
   # StringArray.msg
 )
 
