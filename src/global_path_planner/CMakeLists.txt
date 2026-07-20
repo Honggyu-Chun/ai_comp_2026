@@ -3,6 +3,12 @@ project(global_path_planner)
 
 add_compile_options(-std=c++14)
 
+# 최적화 빌드가 기본이 아니면(catkin 기본 CMAKE_BUILD_TYPE 공란 = -O0) Release 로 강제.
+# 회피 코어는 소형 인라인 함수가 많아 -O2 에서 크게 빨라진다.
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
 find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   pcl_ros
@@ -60,10 +66,9 @@ find_package(OpenCV REQUIRED)
 
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-  #INCLUDE_DIRS include
-  LIBRARIES global_path_planner
-  CATKIN_DEPENDS nav_msgs pcl_ros roscpp rospy sensor_msgs std_msgs tf2
-  DEPENDS system_lib
+  INCLUDE_DIRS include
+  LIBRARIES path_shift_planner speed_profiler rotary_gate
+  CATKIN_DEPENDS nav_msgs pcl_ros roscpp rospy sensor_msgs std_msgs tf2 katri_msgs morai_msgs
 )
 
 ###########
@@ -73,7 +78,7 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${catkin_INCLUDE_DIRS}
 )
 
@@ -105,6 +110,54 @@ target_link_libraries(obstacle_info_publisher ${catkin_LIBRARIES})
 add_executable(acc_node src/acc_node.cpp)
 add_dependencies(acc_node ${catkin_EXPORTED_TARGETS})
 target_link_libraries(acc_node ${catkin_LIBRARIES})
+
+# 정적 장애물 회피 (Path Shifting): 순수 코어 라이브러리 + ROS 어댑터 노드 + 오프라인 테스트
+add_library(path_shift_planner src/path_shift_planner.cpp)
+add_dependencies(path_shift_planner ${catkin_EXPORTED_TARGETS})
+target_link_libraries(path_shift_planner ${catkin_LIBRARIES})
+
+add_executable(static_obstacle_avoider src/static_obstacle_avoider.cpp)
+add_dependencies(static_obstacle_avoider ${catkin_EXPORTED_TARGETS})
+target_link_libraries(static_obstacle_avoider path_shift_planner ${catkin_LIBRARIES})
+
+# 판단 속도 프로파일링: 순수 코어 라이브러리 + ROS 어댑터 노드
+add_library(speed_profiler src/speed_profiler.cpp)
+add_dependencies(speed_profiler ${catkin_EXPORTED_TARGETS})
+target_link_libraries(speed_profiler ${catkin_LIBRARIES})
+
+add_executable(speed_profiler_node src/speed_profiler_node.cpp)
+add_dependencies(speed_profiler_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(speed_profiler_node speed_profiler ${catkin_LIBRARIES})
+
+# 로터리(회전교차로) 진입 판단: 순수 코어 라이브러리 (노드는 아래에서 추가)
+add_library(rotary_gate src/rotary_gate.cpp)
+add_dependencies(rotary_gate ${catkin_EXPORTED_TARGETS})
+target_link_libraries(rotary_gate ${catkin_LIBRARIES})
+
+add_executable(rotary_entry_node src/rotary_entry_node.cpp)
+add_dependencies(rotary_entry_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(rotary_entry_node rotary_gate ${catkin_LIBRARIES})
+
+if(CATKIN_ENABLE_TESTING)
+  add_executable(test_path_shift_planner test/test_path_shift_planner.cpp)
+  target_link_libraries(test_path_shift_planner path_shift_planner)
+  add_executable(test_speed_profiler test/test_speed_profiler.cpp)
+  target_link_libraries(test_speed_profiler speed_profiler)
+  add_executable(test_rotary_gate test/test_rotary_gate.cpp)
+  target_link_libraries(test_rotary_gate rotary_gate)
+endif()
+
+install(TARGETS path_shift_planner static_obstacle_avoider speed_profiler speed_profiler_node
+  rotary_gate rotary_entry_node
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+install(DIRECTORY include/${PROJECT_NAME}/
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+  FILES_MATCHING PATTERN "*.h"
+)
+install(DIRECTORY launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 
 add_executable(ai_region_state_publisher src/NOT_USED/ai_region_state_publisher.cpp)
 add_dependencies(ai_region_state_publisher ${catkin_EXPORTED_TARGETS})
@@ -138,6 +191,7 @@ catkin_install_python(PROGRAMS
   scripts/gps_imu_fusion.py
   scripts/ll2utm.py
   scripts/path_maker_sm.py
+  scripts/fit_rotary_circle.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

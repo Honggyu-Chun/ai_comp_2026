@@ -10,7 +10,7 @@
   <!-- EgoCtrlCmd fixed fields -->
   <arg name="ctrl_mode" default="2" />
   <arg name="gear" default="4" />
-  <arg name="default_cmd_type" default="2" />
+  <arg name="default_cmd_type" default="1" />
   <arg name="send_without_cmd" default="false" />
 
   <node pkg="morai_gadis_set" type="control_udp_pub.py" name="control_udp_pub" output="screen">

@@ -397,6 +397,7 @@
 #include <geometry_msgs/Point.h>
 #include <std_msgs/Int32.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Bool.h>
 
 #include <katri_msgs/Objects.h>   // /obstacle_path_info (배열)
 
@@ -433,6 +434,21 @@ public:
     int  commanded_path_      = -1;  // 방금 명령한 목표 차선(1/2). -1이면 없음
     bool hold_until_match_    = false; // /current_path가 commanded와 같아질 때까지 다른 로직 무시
     bool prev_static_         = false;
+
+    // --- 정적 장애물 회피 경로(/avoid_path) 연동 ---
+    // static_obstacle_avoider 가 발행하는 회피 경로. fresh 하면 selected_path 로 그대로 전달한다.
+    // (avoid 노드는 무장애물 시 local_path1 을 passthrough 하므로 항상 유효한 주행 경로다.)
+    ros::Subscriber avoid_path_sub_;
+    nav_msgs::Path  avoid_path_;
+    ros::Time       avoid_path_stamp_;
+    bool            has_avoid_       = false;
+    bool            use_avoid_path_  = true;
+    double          avoid_timeout_   = 0.5;   // [s] 이 시간 넘게 안 오면 lane 로직 fallback
+    // avoid 노드가 "실제 shifting 중"임을 알리는 플래그(/avoid_active). NORMAL(passthrough)에는 false 라
+    // selector 의 동적장애물(/moving_obs)·차선변경 로직을 죽이지 않는다.
+    ros::Subscriber avoid_active_sub_;
+    bool            avoid_active_    = false;
+    ros::Time       avoid_active_stamp_;
 
     // 차선별 장애물 유무/최근접거리 (static_obs용 판단)
     bool obstacle_lane1_ = false;
@@ -481,11 +497,37 @@ public:
 
         objects_sub_      = nh.subscribe(objects_topic_,   10, &PathSelect::ObjectsCB, this);
 
+        pnh.param("use_avoid_path", use_avoid_path_, use_avoid_path_);
+        pnh.param("avoid_timeout",  avoid_timeout_,  avoid_timeout_);
+        avoid_path_sub_   = nh.subscribe("/avoid_path",   10, &PathSelect::AvoidPathCB, this);
+        avoid_active_sub_ = nh.subscribe("/avoid_active", 10, &PathSelect::AvoidActiveCB, this);
+
         selected_path_pub_ = nh.advertise<nav_msgs::Path>("/selected_path", 1);
         moving_obs_pub_    = nh.advertise<std_msgs::String>("/moving_obs", 1);
     }
 
     // --- Callbacks ---
+    void AvoidPathCB(const nav_msgs::Path::ConstPtr &msg) {
+        avoid_path_ = *msg;
+        avoid_path_stamp_ = ros::Time::now();
+        has_avoid_ = true;
+    }
+    void AvoidActiveCB(const std_msgs::Bool::ConstPtr &msg) {
+        avoid_active_ = msg->data;
+        avoid_active_stamp_ = ros::Time::now();
+    }
+    // avoid 노드가 "실제 회피 중(active)"이고 fresh·비어있지 않은 /avoid_path 가 있으면 selected_path 로
+    // 전달하고 true. NORMAL(passthrough)·미실행·stale·빈경로면 false → 기존 lane 로직 fallback.
+    bool tryPublishAvoidPath() {
+        if (!use_avoid_path_ || !has_avoid_) return false;
+        if (avoid_path_.poses.empty()) return false;                      // 빈 경로 전파 방지
+        const ros::Time now = ros::Time::now();
+        if ((now - avoid_path_stamp_).toSec() > avoid_timeout_) return false;
+        if (!avoid_active_ || (now - avoid_active_stamp_).toSec() > avoid_timeout_) return false;
+        avoid_path_.header.stamp = now;
+        selected_path_pub_.publish(avoid_path_);
+        return true;
+    }
     void LanePathCB(const nav_msgs::Path::ConstPtr &msg)   { lane_path_  = *msg; }
     void LocalPath1CB(const nav_msgs::Path::ConstPtr &msg) { local_path1_ = *msg; }
     void LocalPath2CB(const nav_msgs::Path::ConstPtr &msg) { local_path2_ = *msg; }
@@ -747,6 +789,14 @@ int main(int argc, char **argv)
             ps.hold_until_match_ = false;
             ps.commanded_path_   = -1;
             ps.publishLanePath();
+            rate.sleep();
+            continue;
+        }
+
+        // === 정적 장애물 회피 경로 우선: static_obstacle_avoider 의 /avoid_path 가 fresh 하면
+        //     그대로 selected_path 로 전달(무장애물 시 local_path1 passthrough라 안전). ===
+        if (ps.tryPublishAvoidPath())
+        {
             rate.sleep();
             continue;
         }

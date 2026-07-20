@@ -37,7 +37,7 @@ public:
           cos_yaw_(1.0), sin_yaw_(0.0), got_ego_(false)
     {
         ros::NodeHandle nh;
-        ego_sub_ = nh.subscribe("/Ego_topic", 1, &ObstacleInfoPublisher::egoCallback, this);
+        ego_sub_ = nh.subscribe("/morai/ego_topic", 1, &ObstacleInfoPublisher::egoCallback, this);
         object_sub_ = nh.subscribe("/Object_topic", 1, &ObstacleInfoPublisher::objectCallback, this);
         obstacle_pub_ = nh.advertise<katri_msgs::ObstacleInfoArray>("/obstacle_info", 1);
         marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>("/obstacle_markers", 1);
@@ -59,7 +59,7 @@ private:
     void objectCallback(const morai_msgs::ObjectStatusList::ConstPtr& msg)
     {
         if (!got_ego_) {
-            ROS_WARN_THROTTLE(2.0, "[obstacle_info] waiting for /Ego_topic");
+            ROS_WARN_THROTTLE(2.0, "[obstacle_info] waiting for /morai/ego_topic");
             return;
         }
 

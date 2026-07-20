@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 판단 속도 프로파일링 (판단→제어 목표속도).
+     입력 경로(/selected_path)의 각 점에 목표속도[kph]를 계산해 pose.position.z 에 실어
+     /selected_path_profiled 로 발행. 제어(mpc)는 이 z를 추종.
+     체인: local_path_selector → /selected_path → speed_profiler → /selected_path_profiled → mpc_control -->
+<launch>
+  <!-- ===== 토픽 ===== -->
+  <arg name="input_topic"    default="/selected_path" />          <!-- 입력 경로(회피 반영, base_link) -->
+  <arg name="output_topic"   default="/selected_path_profiled" /> <!-- 출력: z=목표속도[kph] -->
+  <arg name="obstacle_topic" default="/obstacle_info" />          <!-- ADAS 추종/정지용 장애물 -->
+  <arg name="ego_topic"      default="/Ego_topic" />              <!-- 자차 속도(EgoVehicleStatus) -->
+  <arg name="obstacle_timeout" default="0.5" />                   <!-- 장애물 stale[s] 넘으면 무시 -->
+  <arg name="ego_timeout"      default="0.5" />                   <!-- 자차속도 stale[s] 넘으면 0으로 -->
+  <arg name="publish_markers"    default="true" />                <!-- RViz 속도 시각화(/speed_profile_markers) -->
+  <arg name="speed_height_scale" default="0.05" />               <!-- 속도 스카이라인 높이[m per kph] (60kph→3m) -->
+
+  <!-- ===== Phase1: 곡률감속 + 제동 포락선 (제어에서 이식) ===== -->
+  <arg name="max_speed_kph"              default="60.0" />        <!-- 상한(60 하드클램프) -->
+  <arg name="lateral_accel_limit_mps2"   default="2.2" />         <!-- 횡가속 한계(곡률감속 강도) -->
+  <arg name="curve_speed_safety_factor"  default="0.82" />        <!-- 곡률감속 안전계수(0.3~1.0, 작을수록 더 감속) -->
+  <arg name="minimum_curve_speed_kph"    default="2.3" />         <!-- 곡률감속 하한 -->
+  <arg name="brake_decel_mps2"           default="8.99" />        <!-- 역방향 제동 감속도(커브 전 감속 강도) -->
+  <arg name="path_resolution_min"        default="0.5" />         <!-- 곡률계산용 리샘플 최소간격[m] -->
+  <arg name="curvature_smoothing_window_m" default="0.98" />      <!-- 곡률 평활 창[m](클수록 매끄러운 곡률) -->
+
+  <!-- ===== Phase2: ADAS 앞차 추종(CTG) ===== -->
+  <arg name="use_following"  default="true" />                    <!-- 앞차 추종 on/off -->
+  <arg name="acc_headway_s"  default="1.5" />                     <!-- 시간간격 tau[s] -->
+  <arg name="acc_min_gap_m"  default="6.0" />                     <!-- 정지 최소간격 d0[m] -->
+  <arg name="acc_gain_k"     default="0.4" />                     <!-- 간격오차 비례게인 -->
+  <arg name="acc_lane_gate_m" default="1.5" />                    <!-- |y_m| 초과 장애물은 다른 차로로 무시 -->
+  <arg name="acc_standoff_m" default="2.5" />                     <!-- base_link 원점→앞범퍼 오프셋[m] -->
+
+  <!-- ===== Phase2: 전방 정지 장애물 ===== -->
+  <arg name="use_obstacle_stop" default="true" />                 <!-- 전방 정적장애물 정지 on/off -->
+  <arg name="stop_distance_m"   default="6.0" />                  <!-- 전방 이 거리[m] 안 정적장애물이면 그 앞에서 정지 -->
+  <arg name="v_static_max_mps"  default="0.5" />                  <!-- 정적 판정 속도[m/s] -->
+
+  <node name="speed_profiler" pkg="global_path_planner" type="speed_profiler_node"
+        output="screen" respawn="true">
+    <param name="input_topic"    value="$(arg input_topic)" type="str" />
+    <param name="output_topic"   value="$(arg output_topic)" type="str" />
+    <param name="obstacle_topic" value="$(arg obstacle_topic)" type="str" />
+    <param name="ego_topic"      value="$(arg ego_topic)" type="str" />
+    <param name="obstacle_timeout" value="$(arg obstacle_timeout)" type="double" />
+    <param name="ego_timeout"      value="$(arg ego_timeout)" type="double" />
+    <param name="publish_markers"    value="$(arg publish_markers)" type="bool" />
+    <param name="speed_height_scale" value="$(arg speed_height_scale)" type="double" />
+
+    <param name="max_speed_kph"              value="$(arg max_speed_kph)" type="double" />
+    <param name="lateral_accel_limit_mps2"   value="$(arg lateral_accel_limit_mps2)" type="double" />
+    <param name="curve_speed_safety_factor"  value="$(arg curve_speed_safety_factor)" type="double" />
+    <param name="minimum_curve_speed_kph"    value="$(arg minimum_curve_speed_kph)" type="double" />
+    <param name="brake_decel_mps2"           value="$(arg brake_decel_mps2)" type="double" />
+    <param name="path_resolution_min"        value="$(arg path_resolution_min)" type="double" />
+    <param name="curvature_smoothing_window_m" value="$(arg curvature_smoothing_window_m)" type="double" />
+
+    <param name="use_following"  value="$(arg use_following)" type="bool" />
+    <param name="acc_headway_s"  value="$(arg acc_headway_s)" type="double" />
+    <param name="acc_min_gap_m"  value="$(arg acc_min_gap_m)" type="double" />
+    <param name="acc_gain_k"     value="$(arg acc_gain_k)" type="double" />
+    <param name="acc_lane_gate_m" value="$(arg acc_lane_gate_m)" type="double" />
+    <param name="acc_standoff_m" value="$(arg acc_standoff_m)" type="double" />
+
+    <param name="use_obstacle_stop" value="$(arg use_obstacle_stop)" type="bool" />
+    <param name="stop_distance_m"   value="$(arg stop_distance_m)" type="double" />
+    <param name="v_static_max_mps"  value="$(arg v_static_max_mps)" type="double" />
+  </node>
+</launch>

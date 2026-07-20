@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <launch>
-  <!-- path_maker가 저장할 파일명을 설정한다. -->
-  <arg name="path_file_name" default="test1.txt" />
+  <!-- path_maker가 저장할 파일명과 스무딩 파라미터를 설정한다. -->
+  <arg name="path_file_name" default="comp_v2.txt" />
+  <!-- sample_distance 는 소비 노드(odom_path_publisher)의 waypoint_interval 과 반드시 일치시킬 것(둘 다 0.1). -->
+  <arg name="path_sample_distance" default="0.1" />
+  <arg name="path_smoothing_deviation_m" default="0.1" />
+  <!-- 폐곡선(트랙) 모드: true 면 되돌아온 꼬리를 자르고 주기 스플라인으로 seam 을 닫는다. -->
+  <arg name="path_closed_loop" default="true" />
+  <arg name="path_closed_loop_radius" default="2.0" />
 
   <!-- ll2utm 노드의 좌표 변환 파라미터를 설정한다. -->
   <arg name="ll2utm_gps_topic" default="/gps" />
@@ -9,8 +15,8 @@
   <arg name="ll2utm_map_frame_id" default="map" />
   <arg name="ll2utm_base_frame_id" default="base_link" />
   <arg name="ll2utm_utm_zone" default="52" />
-  <arg name="ll2utm_east_offset" default="302459.942" />
-  <arg name="ll2utm_north_offset" default="4122635.537" />
+  <arg name="ll2utm_east_offset" default="302595.0" />
+  <arg name="ll2utm_north_offset" default="4124145.0" />
   <arg name="ll2utm_use_msg_offset" default="false" />
   <arg name="ll2utm_require_valid_status" default="false" />
   <arg name="ll2utm_min_gps_status" default="0" />
@@ -66,5 +72,9 @@
   <!-- UTM odometry를 받아 경로 파일을 기록하고 종료 시 smoothing 결과를 저장한다. -->
   <node name="path_maker" pkg="global_path_planner" type="path_maker_sm.py" output="screen">
     <param name="file_name" value="$(arg path_file_name)" type="str" />
+    <param name="sample_distance" value="$(arg path_sample_distance)" type="double" />
+    <param name="smoothing_deviation_m" value="$(arg path_smoothing_deviation_m)" type="double" />
+    <param name="closed_loop" value="$(arg path_closed_loop)" type="bool" />
+    <param name="closed_loop_radius" value="$(arg path_closed_loop_radius)" type="double" />
   </node>
 </launch>

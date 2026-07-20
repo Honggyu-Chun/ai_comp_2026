@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 로터리 판단 단독 테스트.
+     obstacle_info_publisher(/obstacle_info) + rotary_entry(판단) 를 한 번에 실행.
+     전제: sim(MORAI 브리지)이 /Object_topic, /morai/ego_topic 을 발행 중이어야 함.
+     이 launch 만으로는 "판단·시각화"만 확인(주행 X). 실제 주행은 speed_profiler+mpc 체인 필요. -->
+<launch>
+  <!-- 로터리 기하 (fit_rotary_circle.py 결과). 실측값으로 덮어쓸 것. -->
+  <arg name="center_x"        default="-101.5695" />  <!-- UTM, fit -->
+  <arg name="center_y"        default="343.7351" />
+  <arg name="ring_radius_m"   default="18.0241" />
+  <arg name="theta_entry_rad" default="-1.1460" />   <!-- 진입각: 경로↔링 합류 UTM(-94,327) -->
+  <arg name="theta_exit_rad"  default="-0.4611" />   <!-- 진출각: (-86,336) -->
+  <arg name="dir"             default="1" />
+
+  <arg name="run_obstacle_info" default="true" />    <!-- /obstacle_info 를 여기서 띄울지 -->
+  <arg name="run_rviz"          default="false" />   <!-- rviz 자동 실행 -->
+
+  <!-- /Object_topic + /morai/ego_topic → /obstacle_info -->
+  <include if="$(arg run_obstacle_info)" file="$(find global_path_planner)/launch/obstacle_info.launch" />
+
+  <!-- 로터리 판단 노드 (기하 파라미터 전달) -->
+  <include file="$(find global_path_planner)/launch/rotary_entry.launch">
+    <arg name="center_x"        value="$(arg center_x)" />
+    <arg name="center_y"        value="$(arg center_y)" />
+    <arg name="ring_radius_m"   value="$(arg ring_radius_m)" />
+    <arg name="theta_entry_rad" value="$(arg theta_entry_rad)" />
+    <arg name="theta_exit_rad"  value="$(arg theta_exit_rad)" />
+    <arg name="dir"             value="$(arg dir)" />
+  </include>
+
+  <node if="$(arg run_rviz)" name="rviz" pkg="rviz" type="rviz" />
+</launch>

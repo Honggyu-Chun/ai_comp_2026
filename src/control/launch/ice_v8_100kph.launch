@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <arg name="ego_topic" default="/Ego_topic" />
+  <!-- Current MORAI bridge reports km/h; set 3.6 only when input is m/s. -->
+  <arg name="velocity_scale_to_kph" default="1.0" />
+  <arg name="audio_backend" default="paplay" />
+  <arg name="volume" default="0.35" />
+  <arg name="sample_rate" default="48000" />
+  <arg name="chunk_ms" default="20.0" />
+  <arg name="audio_latency_ms" default="120.0" />
+  <arg name="audio_process_time_ms" default="20.0" />
+  <arg name="state_publish_hz" default="5.0" />
+  <arg name="engine_start_audio_path" default="$(find control)/sounds/engine_start.wav" />
+  <arg name="gear_loop_audio_path" default="$(find control)/sounds/v8_sound_gear_n.wav" />
+
+  <node pkg="control" type="v8_engine.py" name="morai_engine_sound" output="screen">
+    <param name="ego_topic" value="$(arg ego_topic)" />
+    <param name="velocity_scale_to_kph" value="$(arg velocity_scale_to_kph)" />
+    <param name="audio_backend" value="$(arg audio_backend)" />
+    <param name="volume" value="$(arg volume)" />
+    <param name="sample_rate" value="$(arg sample_rate)" />
+    <param name="chunk_ms" value="$(arg chunk_ms)" />
+    <param name="audio_latency_ms" value="$(arg audio_latency_ms)" />
+    <param name="audio_process_time_ms" value="$(arg audio_process_time_ms)" />
+    <param name="state_publish_hz" value="$(arg state_publish_hz)" />
+    <param name="nice_level" value="5" />
+    <param name="use_hybrid_samples" value="true" />
+    <param name="use_gear_loop_sample" value="true" />
+    <param name="use_m3_sample" value="false" />
+    <param name="engine_start_audio_path" value="$(arg engine_start_audio_path)" />
+    <param name="gear_loop_audio_path" value="$(arg gear_loop_audio_path)" />
+    <param name="startup_loop_start_s" value="3.0" />
+    <param name="startup_loop_end_s" value="9.5" />
+    <param name="startup_sample_gain" value="1.15" />
+    <param name="gear_loop_reference_rpm" value="7000.0" />
+    <param name="gear_loop_start_s" value="0.10" />
+    <param name="gear_loop_end_s" value="1.50" />
+    <param name="gear_loop_crossfade_s" value="0.10" />
+    <param name="gear_loop_minimum_rate" value="0.24" />
+    <param name="gear_loop_gain" value="1.55" />
+    <param name="procedural_mix" value="0.0" />
+
+    <param name="engine_style" value="v8_sample_loop" />
+    <param name="engine_cylinders" value="8" />
+    <param name="max_speed_kph" value="100.0" />
+    <param name="idle_rpm" value="850.0" />
+    <param name="redline_rpm" value="7000.0" />
+    <param name="soft_limit_rpm" value="6800.0" />
+    <param name="max_rpm" value="7200.0" />
+    <param name="upshift_rpm" value="6500.0" />
+    <param name="downshift_rpm" value="2300.0" />
+    <param name="rpm_rise_tau_s" value="0.030" />
+    <param name="rpm_fall_tau_s" value="0.050" />
+    <param name="speed_rpm_curve_exponent" value="1.0" />
+    <param name="upshift_duration_s" value="0.12" />
+    <param name="downshift_duration_s" value="0.15" />
+    <param name="shift_cooldown_s" value="0.20" />
+    <param name="blip_gain" value="1.15" />
+    <param name="kickdown_throttle" value="0.85" />
+    <param name="brake_downshift" value="0.30" />
+    <rosparam param="gear_max_speeds_kph">[20.2, 32.1, 47.2, 64.4, 81.0, 100.0]</rosparam>
+
+    <param name="enable_crackle" value="true" />
+    <param name="crackle_min_rpm" value="3500.0" />
+    <param name="crackle_min_speed_kph" value="15.0" />
+    <param name="crackle_gain" value="0.45" />
+    <param name="crackle_probability_gain" value="1.0" />
+    <param name="enable_limiter" value="true" />
+    <param name="limiter_rpm" value="6900.0" />
+    <param name="limiter_hz" value="28.0" />
+  </node>
+</launch>

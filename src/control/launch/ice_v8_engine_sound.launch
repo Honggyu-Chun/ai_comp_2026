@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <!-- Compatibility name: keep one canonical V8 configuration. -->
+  <arg name="ego_topic" default="/morai/ego_topic" />
+  <arg name="velocity_scale_to_kph" default="1.0" />
+  <arg name="audio_backend" default="paplay" />
+  <arg name="volume" default="0.35" />
+  <arg name="sample_rate" default="48000" />
+  <arg name="chunk_ms" default="20.0" />
+  <arg name="audio_latency_ms" default="120.0" />
+  <arg name="audio_process_time_ms" default="20.0" />
+  <arg name="state_publish_hz" default="5.0" />
+  <arg name="engine_start_audio_path" default="$(find control)/sounds/engine_start.wav" />
+  <arg name="gear_loop_audio_path" default="$(find control)/sounds/v8_sound_gear_n.wav" />
+
+  <include file="$(find control)/launch/ice_v8_100kph.launch">
+    <arg name="ego_topic" value="$(arg ego_topic)" />
+    <arg name="velocity_scale_to_kph" value="$(arg velocity_scale_to_kph)" />
+    <arg name="audio_backend" value="$(arg audio_backend)" />
+    <arg name="volume" value="$(arg volume)" />
+    <arg name="sample_rate" value="$(arg sample_rate)" />
+    <arg name="chunk_ms" value="$(arg chunk_ms)" />
+    <arg name="audio_latency_ms" value="$(arg audio_latency_ms)" />
+    <arg name="audio_process_time_ms" value="$(arg audio_process_time_ms)" />
+    <arg name="state_publish_hz" value="$(arg state_publish_hz)" />
+    <arg name="engine_start_audio_path" value="$(arg engine_start_audio_path)" />
+    <arg name="gear_loop_audio_path" value="$(arg gear_loop_audio_path)" />
+  </include>
+</launch>

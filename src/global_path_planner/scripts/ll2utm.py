@@ -64,8 +64,8 @@ class LocationSensor:
         self.zone = int(rospy.get_param("~utm_zone", zone))
         self.kcity_east_offset = 302459.942
         self.kcity_north_offset = 4122635.537
-        self.east_offset = float(rospy.get_param("~east_offset", 0.0))
-        self.north_offset = float(rospy.get_param("~north_offset", 0.0))
+        self.east_offset = float(rospy.get_param("~east_offset", 302595.0))
+        self.north_offset = float(rospy.get_param("~north_offset", 4124145.0))
         self.use_msg_offset = rospy.get_param("~use_msg_offset", False)
         self.require_valid_status = rospy.get_param("~require_valid_status", False)
         self.min_gps_status = int(rospy.get_param("~min_gps_status", 0))

@@ -4,3 +4,7 @@ logs/
 .catkin_tools/
 .ros_deps/
 .claude/settings.local.json
+__pycache__/
+*.pyc
+*.wav
+*.zip

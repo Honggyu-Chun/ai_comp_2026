@@ -12,6 +12,7 @@ catkin_package()
 catkin_install_python(PROGRAMS
   scripts/morai_udp_bridge.py
   scripts/control_udp_pub.py
+  scripts/object_info_udp_bridge.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

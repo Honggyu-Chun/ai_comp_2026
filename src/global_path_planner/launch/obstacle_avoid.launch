@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 정적 장애물 회피(Path Shifting) 단독 실행.
+     입력: /local_path1(base_link), /obstacle_info(base_link) → 출력: /avoid_path(base_link).
+     경로를 법선방향으로 offset 시켜 장애물을 피한다. 각 파라미터 설명은 아래 주석 참고. -->
+<launch>
+  <!-- ===== 토픽 / 실행 ===== -->
+  <arg name="path_topic"     default="/local_path1" />   <!-- 입력 로컬경로 (nav_msgs/Path, base_link) -->
+  <arg name="obstacle_topic" default="/obstacle_info" /> <!-- 입력 장애물 (katri_msgs/ObstacleInfoArray, base_link) -->
+  <arg name="output_topic"   default="/avoid_path" />    <!-- 출력 회피경로 (nav_msgs/Path, base_link) -->
+  <arg name="timer_rate_hz"  default="20.0" />           <!-- 계획(회피 offset 계산) 루프 주기 [Hz] -->
+  <arg name="publish_debug_markers" default="true" />    <!-- RViz 디버그 마커(/avoid_debug_markers) 발행 여부 -->
+  <arg name="marker_rate_hz" default="50.0" />           <!-- 디버그 마커 발행 주기 [Hz] (계획 루프와 분리) -->
+
+  <!-- ===== 입력 유효성 / staleness ===== -->
+  <arg name="path_timeout"     default="0.3" />          <!-- /local_path1 이 이 시간[s] 넘게 끊기면 발행중단+리셋 -->
+  <arg name="obstacle_timeout" default="0.5" />          <!-- /obstacle_info 가 이 시간[s] 넘게 끊기면 장애물 무시(유령 회피 방지) -->
+  <arg name="expected_frame"   default="base_link" />    <!-- 입력 경로의 기대 frame_id (다르면 경고) -->
+  <arg name="min_points"       default="10" />           <!-- 경로 점 수가 이 값 미만이면 passthrough -->
+  <arg name="min_path_len"     default="5.0" />          <!-- 경로 총길이[m]가 이 값 미만이면 passthrough -->
+
+  <!-- ===== 차량 footprint 마커 (아이오닉5). base_link(0,0,0)=후륜축 중앙 ===== -->
+  <arg name="viz_veh_length"    default="4.635" />       <!-- 차 길이[m] -->
+  <arg name="viz_veh_width"     default="1.892" />       <!-- 차 폭[m] -->
+  <arg name="viz_veh_height"    default="1.605" />       <!-- 차 높이[m] -->
+  <arg name="viz_rear_overhang" default="0.79" />        <!-- 후륜축→뒷범퍼 거리[m] (박스 위치 오프셋용) -->
+
+  <!-- ===== 차량/장애물 안전 반경 ===== -->
+  <arg name="veh_half_width"   default="0.95" />         <!-- 차량 반폭[m] (아이오닉5 1.892/2) -->
+  <arg name="margin_obs"       default="0.50" />         <!-- 장애물 추가 안전여유[m] (avoid_offset=0 일 때만 사용) -->
+  <arg name="obs_radius_scale" default="1.00" />         <!-- 장애물 크기(반경) 추정 스케일 -->
+  <arg name="extra_clearance"  default="0.10" />         <!-- 추가 여유[m] (avoid_offset=0 일 때만 사용) -->
+  <arg name="r_obs_min"        default="0.2" />          <!-- 장애물 반경 하한[m] -->
+  <arg name="r_obs_max"        default="3.0" />          <!-- 장애물 반경 상한[m] -->
+  <!-- d_block(장애물과 유지할 이격) = veh_half_width + scale*r_obs + margin_obs + extra_clearance -->
+
+  <!-- ===== 게이팅(어떤 장애물을 언제 회피할지) ===== -->
+  <arg name="x_front_min"  default="0.0" />              <!-- 이보다 가까운 전방[m] 장애물은 무시 -->
+  <arg name="x_plan_max"   default="50.0" />             <!-- 전방 이 거리[m] 초과 장애물은 무시 -->
+  <arg name="s_plan_max"   default="30.0" />             <!-- 경로 진행거리 s가 이 값[m] 이내인 구간만 회피계획 -->
+  <arg name="v_static_max" default="0.5" />              <!-- 이 속도[m/s] 미만만 정적 장애물로 회피 -->
+  <arg name="side_deadband" default="0.20" />            <!-- 경로 중앙 근처 좌/우 애매 판정폭[m] (side-lock용) -->
+
+  <!-- ===== 회피 방향 정책 (웬만하면 우측) ===== -->
+  <arg name="prefer_right"      default="true" />        <!-- true: 우측 우선 회피 / false: 빈 쪽(반대편)으로 -->
+  <arg name="right_switch_side" default="0.75" />         <!-- 장애물이 경로보다 이 값[m] 이상 오른쪽이면 좌측으로 전환. 클수록 우측을 더 고집 -->
+
+  <!-- ===== 회피 offset(이격) ===== -->
+  <arg name="avoid_offset"    default="0.0" />           <!-- 회피 시 장애물과 유지할 횡이격[m](≈경로 offset). 0=자동(d_block), >0=직접지정(물리최소 보장) -->
+  <arg name="max_shift"       default="1.75" />           <!-- 횡 offset 절대 상한[m] (±) -->
+  <arg name="lane_half_width" default="1.75" />          <!-- (시각화 전용) 경로중심~차선경계 반폭[m]. RViz 차선선만 그림, 판단엔 미사용 -->
+
+  <!-- ===== 회피 구간 형상 / 램프 (얼마나 미리·완만히) ===== -->
+  <arg name="pre_dist"      default="15.0" />            <!-- 장애물 앞 이 거리[m]부터 회피 시작 -->
+  <arg name="post_dist"     default="5.0" />            <!-- 장애물 뒤 이 거리[m]까지 회피 유지 후 복귀 -->
+  <arg name="ramp_in_len"   default="5.0" />            <!-- 진입 램프 길이[m] (클수록 완만, 곡률↓) -->
+  <arg name="ramp_out_len"  default="5.0" />            <!-- 복귀 램프 길이[m] -->
+  <arg name="soften_margin" default="0.3" />             <!-- 후보 포함 완화폭[m] (미리 반응 시작) -->
+  <arg name="cluster_s_eps" default="1.0" />             <!-- s축 이 간격[m] 안 장애물들을 한 그룹으로(바리어 판정) -->
+
+  <!-- ===== 1D 솔버 (경로 부드러움) ===== -->
+  <arg name="solver_iters"    default="8" />             <!-- 평활·기울기·제약 반복 횟수 -->
+  <arg name="smooth_window"   default="16" />             <!-- s축 이동평균 반경(클수록 매끄러움) -->
+  <arg name="max_doffset_ds"  default="0.2" />           <!-- 횡offset 기울기 상한[m/m] (작을수록 완만, 급조향↓) -->
+  <arg name="hard_long_margin" default="0.0" />          <!-- hard 제약 종방향 여유[m] -->
+
+  <!-- ===== 시간필터 / FSM / side-lock ===== -->
+  <arg name="filter_k_avoid"  default="0.50" />          <!-- 회피 시 목표 추종 게인(0~1). 클수록 빠르게 피함 -->
+  <arg name="filter_k_return" default="0.1" />          <!-- 복귀 시 게인(0~1). 작을수록 부드러운 복귀 -->
+  <arg name="t_return_hold"   default="0.5" />           <!-- 장애물 사라진 뒤 NORMAL 복귀 대기[s] -->
+  <arg name="side_lock_sec"   default="4.0" />           <!-- 회피 방향/좌우 판단 유지시간[s] (핑퐁 방지) -->
+  <arg name="track_lost_sec"  default="1.0" />           <!-- 미검출 장애물 lock 삭제시간[s] -->
+
+  <node name="static_obstacle_avoider" pkg="global_path_planner"
+        type="static_obstacle_avoider" output="screen" respawn="true">
+    <param name="path_topic"     value="$(arg path_topic)" type="str" />
+    <param name="obstacle_topic" value="$(arg obstacle_topic)" type="str" />
+    <param name="output_topic"   value="$(arg output_topic)" type="str" />
+    <param name="timer_rate_hz"  value="$(arg timer_rate_hz)" type="double" />
+    <param name="publish_debug_markers" value="$(arg publish_debug_markers)" type="bool" />
+    <param name="marker_rate_hz" value="$(arg marker_rate_hz)" type="double" />
+    <param name="path_timeout"     value="$(arg path_timeout)" type="double" />
+    <param name="obstacle_timeout" value="$(arg obstacle_timeout)" type="double" />
+    <param name="expected_frame"   value="$(arg expected_frame)" type="str" />
+    <param name="min_points"       value="$(arg min_points)" type="int" />
+    <param name="min_path_len"     value="$(arg min_path_len)" type="double" />
+    <param name="viz_veh_length"   value="$(arg viz_veh_length)" type="double" />
+    <param name="viz_veh_width"    value="$(arg viz_veh_width)" type="double" />
+    <param name="viz_veh_height"   value="$(arg viz_veh_height)" type="double" />
+    <param name="viz_rear_overhang" value="$(arg viz_rear_overhang)" type="double" />
+
+    <param name="veh_half_width"   value="$(arg veh_half_width)" type="double" />
+    <param name="margin_obs"       value="$(arg margin_obs)" type="double" />
+    <param name="obs_radius_scale" value="$(arg obs_radius_scale)" type="double" />
+    <param name="extra_clearance"  value="$(arg extra_clearance)" type="double" />
+    <param name="r_obs_min"        value="$(arg r_obs_min)" type="double" />
+    <param name="r_obs_max"        value="$(arg r_obs_max)" type="double" />
+
+    <param name="x_front_min"   value="$(arg x_front_min)" type="double" />
+    <param name="x_plan_max"    value="$(arg x_plan_max)" type="double" />
+    <param name="s_plan_max"    value="$(arg s_plan_max)" type="double" />
+    <param name="v_static_max"  value="$(arg v_static_max)" type="double" />
+    <param name="side_deadband" value="$(arg side_deadband)" type="double" />
+
+    <param name="prefer_right"      value="$(arg prefer_right)" type="bool" />
+    <param name="right_switch_side" value="$(arg right_switch_side)" type="double" />
+    <param name="avoid_offset"      value="$(arg avoid_offset)" type="double" />
+    <param name="lane_half_width"   value="$(arg lane_half_width)" type="double" />
+
+    <param name="max_shift"     value="$(arg max_shift)" type="double" />
+    <param name="pre_dist"      value="$(arg pre_dist)" type="double" />
+    <param name="post_dist"     value="$(arg post_dist)" type="double" />
+    <param name="ramp_in_len"   value="$(arg ramp_in_len)" type="double" />
+    <param name="ramp_out_len"  value="$(arg ramp_out_len)" type="double" />
+    <param name="soften_margin" value="$(arg soften_margin)" type="double" />
+    <param name="cluster_s_eps" value="$(arg cluster_s_eps)" type="double" />
+
+    <param name="solver_iters"     value="$(arg solver_iters)" type="int" />
+    <param name="smooth_window"    value="$(arg smooth_window)" type="int" />
+    <param name="max_doffset_ds"   value="$(arg max_doffset_ds)" type="double" />
+    <param name="hard_long_margin" value="$(arg hard_long_margin)" type="double" />
+
+    <param name="filter_k_avoid"  value="$(arg filter_k_avoid)" type="double" />
+    <param name="filter_k_return" value="$(arg filter_k_return)" type="double" />
+    <param name="t_return_hold"   value="$(arg t_return_hold)" type="double" />
+    <param name="side_lock_sec"   value="$(arg side_lock_sec)" type="double" />
+    <param name="track_lost_sec"  value="$(arg track_lost_sec)" type="double" />
+  </node>
+</launch>

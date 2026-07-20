@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <arg name="ego_topic" default="/morai/ego_topic" />
+  <arg name="velocity_scale_to_kph" default="1.0" />
+  <arg name="audio_backend" default="paplay" />
+  <arg name="volume" default="0.45" />
+  <arg name="sample_rate" default="44100" />
+  <arg name="chunk_ms" default="20.0" />
+  <arg name="audio_latency_ms" default="120.0" />
+  <arg name="audio_process_time_ms" default="20.0" />
+  <arg name="state_publish_hz" default="5.0" />
+  <arg name="sample_audio_path" default="$(find control)/sounds/EV_mode.wav" />
+
+  <node pkg="control" type="morai_engine_sound_ev.py" name="morai_engine_sound" output="screen">
+    <param name="ego_topic" value="$(arg ego_topic)" />
+    <param name="velocity_scale_to_kph" value="$(arg velocity_scale_to_kph)" />
+    <param name="audio_backend" value="$(arg audio_backend)" />
+    <param name="volume" value="$(arg volume)" />
+    <param name="sample_rate" value="$(arg sample_rate)" />
+    <param name="chunk_ms" value="$(arg chunk_ms)" />
+    <param name="audio_latency_ms" value="$(arg audio_latency_ms)" />
+    <param name="audio_process_time_ms" value="$(arg audio_process_time_ms)" />
+    <param name="state_publish_hz" value="$(arg state_publish_hz)" />
+
+    <!-- Sample-based Taycan-like EV active sound mode -->
+    <param name="engine_style" value="sample_ev" />
+    <param name="sample_audio_path" value="$(arg sample_audio_path)" />
+    <param name="sample_start_time_s" value="0.0" />
+    <param name="sample_end_time_s" value="11.98" />
+    <param name="sample_speed_min_kph" value="0.0" />
+    <param name="sample_speed_max_kph" value="65.0" />
+    <param name="sample_position_tau_s" value="0.35" />
+    <param name="sample_gain" value="0.75" />
+    <param name="sample_playback_rate" value="1.0" />
+    <!-- Four overlapping Hann grains follow the speed-mapped sample position. -->
+    <param name="sample_grain_count" value="4" />
+    <param name="sample_grain_ms" value="320.0" />
+    <param name="sample_grain_jitter_ms" value="28.0" />
+    <param name="sample_jitter_tau_s" value="0.35" />
+    <param name="sample_grain_rate_jitter" value="0.008" />
+    <param name="sample_throttle_hf_gain" value="0.45" />
+    <param name="sample_regen_gain" value="0.30" />
+
+    <!-- EV sample mode uses this only as its speed-map ceiling. -->
+    <param name="max_speed_kph" value="65.0" />
+  </node>
+</launch>

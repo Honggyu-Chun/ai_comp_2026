@@ -1,0 +1,427 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <!-- mode: real | morai -->
+  <arg name="mode" default="morai" />
+
+  <!-- common topics -->
+  <arg name="gps_topic" default="/odometry/filtered" />
+  <!-- 판단 speed_profiler 가 z에 목표속도[kph]를 실어 발행하는 경로. profiler 미실행 시 /selected_path 로 바꾸면
+       제어가 z=0(raw)로 보고 자체 곡률·제동 프로파일 fallback 동작. -->
+  <arg name="local_path_topic" default="/selected_path_profiled" />
+  <arg name="map_state_topic" default="/state" />
+  <arg name="car_state_topic" default="/moving_obs" />
+
+  <!-- mode-specific topics -->
+  <arg name="real_velocity_topic" default="/gps_data/fix_velocity" />
+  <arg name="morai_ego_topic" default="/morai/ego_topic" />
+  <arg name="cmd_vel_topic" default="/cmd_vel" />
+  <arg name="ctrl_cmd_topic" default="/ctrl_cmd" />
+
+  <!--
+    Current MORAI UDP bridge speed magnitude matches the MORAI UI.
+    Keep this at 1.0 unless the bridge is changed to publish m/s.
+  -->
+  <arg name="morai_velocity_to_kph_scale" default="1.0" />
+  <arg name="use_morai_steer_feedback" default="true" />
+  <arg name="morai_steer_feedback_unit" default="deg" />
+  <arg name="morai_steer_feedback_sign" default="1.0" />
+
+  <!--
+    MORAI CtrlCmd longitudinal mode:
+      1 = throttle/brake control
+      2 = velocity control
+      3 = acceleration control
+    The measured longitudinal model is optimized in m/s^2 and converted to pedals.
+  -->
+  <arg name="morai_longitudinal_cmd_type" default="1" />
+
+  <!-- full MPC vehicle and solver parameters -->
+  <!-- vehicle spec baseline: wheelbase 3.000 m, length 4.695 m, width 1.890 m -->
+  <!-- frame assumption: /selected_path is expressed in base_link/rear-axle coordinates. -->
+  <!-- tracking_point_offset=0 tracks the rear axle center; positive values track a point ahead. -->
+  <arg name="control_frequency" default="50" />
+  <arg name="status_print_hz" default="5.0" />
+  <arg name="tunable_param_reload_hz" default="2.0" />
+
+  <arg name="wheel_base" default="3.0" />
+  <!-- MPC model calibration only: keeps physical wheelbase at 3.0 m, but lets
+       the prediction model treat steering as stronger in sharp curves. -->
+  <arg name="use_steer_model_gain" default="true" />
+  <arg name="steer_model_gain_straight" default="0.9712632392275303" />
+  <arg name="steer_model_gain_per_curvature" default="5.675073039922506" />
+  <arg name="tracking_point_offset" default="0.0" />
+  <arg name="max_steer_deg" default="40.0" />
+  <!-- Static fallback. Speed-adaptive steering below overrides this when enabled. -->
+  <arg name="max_steer_rate_degps" default="35.0" />
+  <arg name="use_speed_adaptive_steering" default="true" />
+  <arg name="steering_schedule_min_speed_kph" default="15.0" />
+  <arg name="steering_schedule_max_speed_kph" default="60.0" />
+  <arg name="low_speed_max_steer_rate_degps" default="51.607102580776676" />
+  <arg name="high_speed_max_steer_rate_degps" default="13.431230583850478" />
+
+  <!-- Measured MORAI limits from full-pedal 0-60 and 60-0 tests. -->
+  <arg name="max_speed_kph" default="60.0" />
+  <arg name="max_accel_mps2" default="5.3" />
+  <arg name="max_decel_mps2" default="9.0" />
+  <arg name="max_jerk_mps3" default="8.0" />
+
+  <arg name="use_measured_longitudinal_model" default="true" />
+  <arg name="measured_brake_decel_mps2" default="8.99" />
+  <arg name="longitudinal_latency_s" default="0.03" />
+  <arg name="minimum_curve_speed_kph" default="2.3352863189236714" />
+  <arg name="decision_slow_down_speed_kph" default="19.681912893956294" />
+  <arg name="enforce_speed_profile" default="true" />
+  <arg name="speed_profile_tolerance_kph" default="0.0010000000000000002" />
+
+  <!-- Used only if morai_longitudinal_cmd_type is 1. -->
+  <arg name="accel_pedal_full_scale_mps2" default="5.3" />
+  <arg name="brake_pedal_full_scale_mps2" default="8.99" />
+  <arg name="max_accel_pedal_cmd" default="1.0" />
+  <arg name="max_brake_pedal_cmd" default="1.0" />
+
+  <!-- Static fallback. Speed-adaptive steering below overrides this when enabled. -->
+  <arg name="steering_time_constant" default="0.60" />
+  <arg name="low_speed_steering_time_constant" default="0.3141240185102951" />
+  <arg name="high_speed_steering_time_constant" default="0.7870037894969225" />
+  <arg name="lateral_accel_limit_mps2" default="2.2" />
+  <arg name="curve_speed_safety_factor" default="0.8183396696156058" />
+
+  <!-- Path preprocessing / preview -->
+  <arg name="path_resolution_min" default="0.5015083927639589" />
+  <arg name="curvature_smoothing_window_m" default="0.9796276474933239" />
+  <!-- Dynamic preview distance = clamp(speed * preview_time, min, max). -->
+  <arg name="preview_time_s" default="1.0143259732271666" />
+  <arg name="preview_min_distance_m" default="4.987826993481248" />
+  <arg name="preview_max_distance_m" default="16.748520396929198" />
+
+  <!-- Linear MPC horizon solved by OSQP -->
+  <arg name="horizon_steps" default="25" />
+  <arg name="mpc_dt" default="0.10" />
+
+  <!-- MPC cost weights -->
+  <arg name="weight_cte" default="117.40452143195267" />
+  <arg name="weight_heading" default="25.995441272775736" />
+  <arg name="weight_speed" default="18.777013449812383" />
+  <arg name="weight_steer" default="0.11996975307296873" />
+  <arg name="weight_steer_rate" default="25.729363772070073" />
+  <arg name="weight_steer_accel" default="57.36250591635507" />
+  <arg name="weight_accel" default="0.08388810476004316" />
+  <arg name="weight_jerk" default="2.139572366870152" />
+  <arg name="weight_cte_speed" default="5.867920679194001" />
+  <arg name="terminal_weight" default="18.609106562221136" />
+  <arg name="weight_speed_profile_slack" default="9885.620318049356" />
+
+  <!-- Curvature filter -->
+  <arg name="measurement_noise" default="0.017894164704193246" />
+  <arg name="process_noise" default="0.0050430036213764875" />
+
+  <!-- Lap-by-lap auto tuning. Disabled by default for normal driving. -->
+  <arg name="enable_lap_tuner" default="false" />
+  <arg name="show_lap_tuner_debug" default="true" />
+  <arg name="lap_tuner_debug_topic" default="/mpc_lap_tuner/debug_text" />
+  <arg name="lap_tuner_odom_topic" default="$(arg gps_topic)" />
+  <arg name="lap_tuner_global_path_topic" default="/global_path1" />
+  <arg name="lap_tuner_mpc_param_namespace" default="/mpc_control" />
+  <arg name="lap_tuner_min_lap_time_s" default="10.0" />
+  <arg name="lap_tuner_min_samples_per_lap" default="80" />
+  <arg name="lap_tuner_initial_wait_laps" default="1" />
+  <arg name="lap_tuner_loss_cte_weight" default="1.0" />
+  <arg name="lap_tuner_loss_heading_deg_weight" default="0.02" />
+  <arg name="lap_tuner_loss_penalty_weight" default="1.0" />
+  <arg name="lap_tuner_loss_curve_cte_weight" default="0.70" />
+  <arg name="lap_tuner_loss_sharp_curve_cte_weight" default="0.80" />
+  <arg name="lap_tuner_loss_cte_p95_weight" default="0.75" />
+  <arg name="lap_tuner_loss_cte_max_weight" default="0.20" />
+  <arg name="lap_tuner_loss_curve_cte_p95_weight" default="0.80" />
+  <arg name="lap_tuner_loss_sharp_curve_cte_p95_weight" default="1.10" />
+  <arg name="lap_tuner_loss_sharp_curve_cte_max_weight" default="0.35" />
+  <arg name="lap_tuner_loss_left_right_balance_weight" default="0.20" />
+  <arg name="lap_tuner_loss_curve_bias_weight" default="0.20" />
+  <arg name="lap_tuner_curve_error_curvature_min" default="0.015" />
+  <arg name="lap_tuner_sharp_curve_curvature_min" default="0.035" />
+  <arg name="lap_tuner_min_segment_samples" default="20" />
+  <arg name="lap_tuner_max_log_step" default="0.18" />
+  <arg name="lap_tuner_state_file" default="/tmp/mpc_lap_tuner_state.json" />
+  <arg name="lap_tuner_restore_state" default="false" />
+  <arg name="lap_tuner_debug_publish_hz" default="2.0" />
+  <arg name="lap_tuner_summary_jsonl_file" default="/tmp/mpc_lap_tuner_laps.jsonl" />
+  <arg name="lap_tuner_summary_csv_file" default="/tmp/mpc_lap_tuner_laps.csv" />
+  <arg name="lap_tuner_summary_svg_file" default="/tmp/mpc_lap_tuner_summary.svg" />
+  <arg name="lap_tuner_best_txt_file" default="/tmp/mpc_lap_tuner_best.txt" />
+  <arg name="lap_tuner_graph_max_laps" default="240" />
+
+  <node pkg="control" type="mpc_control" name="mpc_control" output="screen">
+    <param name="mode" value="$(arg mode)" />
+
+    <param name="gps_topic" value="$(arg gps_topic)" />
+    <param name="local_path_topic" value="$(arg local_path_topic)" />
+    <param name="map_state_topic" value="$(arg map_state_topic)" />
+    <param name="car_state_topic" value="$(arg car_state_topic)" />
+
+    <param name="real_velocity_topic" value="$(arg real_velocity_topic)" />
+    <param name="morai_ego_topic" value="$(arg morai_ego_topic)" />
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)" />
+    <param name="ctrl_cmd_topic" value="$(arg ctrl_cmd_topic)" />
+    <param name="show_lap_tuner_debug" value="$(arg show_lap_tuner_debug)" />
+    <param name="lap_tuner_debug_topic" value="$(arg lap_tuner_debug_topic)" />
+
+    <param name="morai_velocity_to_kph_scale" value="$(arg morai_velocity_to_kph_scale)" />
+    <param name="use_morai_steer_feedback" value="$(arg use_morai_steer_feedback)" />
+    <param name="morai_steer_feedback_unit" value="$(arg morai_steer_feedback_unit)" />
+    <param name="morai_steer_feedback_sign" value="$(arg morai_steer_feedback_sign)" />
+    <param name="morai_longitudinal_cmd_type" value="$(arg morai_longitudinal_cmd_type)" />
+
+    <param name="control_frequency" value="$(arg control_frequency)" />
+    <param name="status_print_hz" value="$(arg status_print_hz)" />
+    <param name="tunable_param_reload_hz" value="$(arg tunable_param_reload_hz)" />
+
+    <param name="wheel_base" value="$(arg wheel_base)" />
+    <param name="use_steer_model_gain" value="$(arg use_steer_model_gain)" />
+    <param name="steer_model_gain_straight" value="$(arg steer_model_gain_straight)" />
+    <param name="steer_model_gain_per_curvature" value="$(arg steer_model_gain_per_curvature)" />
+    <param name="tracking_point_offset" value="$(arg tracking_point_offset)" />
+    <param name="max_steer_deg" value="$(arg max_steer_deg)" />
+    <param name="max_steer_rate_degps" value="$(arg max_steer_rate_degps)" />
+    <param name="use_speed_adaptive_steering" value="$(arg use_speed_adaptive_steering)" />
+    <param name="steering_schedule_min_speed_kph" value="$(arg steering_schedule_min_speed_kph)" />
+    <param name="steering_schedule_max_speed_kph" value="$(arg steering_schedule_max_speed_kph)" />
+    <param name="low_speed_max_steer_rate_degps" value="$(arg low_speed_max_steer_rate_degps)" />
+    <param name="high_speed_max_steer_rate_degps" value="$(arg high_speed_max_steer_rate_degps)" />
+
+    <param name="max_speed_kph" value="$(arg max_speed_kph)" />
+    <param name="max_accel_mps2" value="$(arg max_accel_mps2)" />
+    <param name="max_decel_mps2" value="$(arg max_decel_mps2)" />
+    <param name="max_jerk_mps3" value="$(arg max_jerk_mps3)" />
+    <param name="use_measured_longitudinal_model" value="$(arg use_measured_longitudinal_model)" />
+    <param name="measured_brake_decel_mps2" value="$(arg measured_brake_decel_mps2)" />
+    <param name="longitudinal_latency_s" value="$(arg longitudinal_latency_s)" />
+    <param name="minimum_curve_speed_kph" value="$(arg minimum_curve_speed_kph)" />
+    <param name="decision_slow_down_speed_kph" value="$(arg decision_slow_down_speed_kph)" />
+    <param name="enforce_speed_profile" value="$(arg enforce_speed_profile)" />
+    <param name="speed_profile_tolerance_kph" value="$(arg speed_profile_tolerance_kph)" />
+    <!-- Full-pedal acceleration measured in 10 km/h bins: 0-10 ... 50-60. -->
+    <rosparam param="full_accel_by_speed_mps2">[5.27, 4.84, 3.64, 3.56, 3.55, 3.50]</rosparam>
+
+    <param name="accel_pedal_full_scale_mps2" value="$(arg accel_pedal_full_scale_mps2)" />
+    <param name="brake_pedal_full_scale_mps2" value="$(arg brake_pedal_full_scale_mps2)" />
+    <param name="max_accel_pedal_cmd" value="$(arg max_accel_pedal_cmd)" />
+    <param name="max_brake_pedal_cmd" value="$(arg max_brake_pedal_cmd)" />
+
+    <param name="steering_time_constant" value="$(arg steering_time_constant)" />
+    <param name="low_speed_steering_time_constant" value="$(arg low_speed_steering_time_constant)" />
+    <param name="high_speed_steering_time_constant" value="$(arg high_speed_steering_time_constant)" />
+    <param name="lateral_accel_limit_mps2" value="$(arg lateral_accel_limit_mps2)" />
+    <param name="curve_speed_safety_factor" value="$(arg curve_speed_safety_factor)" />
+
+    <param name="path_resolution_min" value="$(arg path_resolution_min)" />
+    <param name="curvature_smoothing_window_m" value="$(arg curvature_smoothing_window_m)" />
+    <param name="preview_time_s" value="$(arg preview_time_s)" />
+    <param name="preview_min_distance_m" value="$(arg preview_min_distance_m)" />
+    <param name="preview_max_distance_m" value="$(arg preview_max_distance_m)" />
+
+    <param name="horizon_steps" value="$(arg horizon_steps)" />
+    <param name="mpc_dt" value="$(arg mpc_dt)" />
+
+    <param name="weight_cte" value="$(arg weight_cte)" />
+    <param name="weight_heading" value="$(arg weight_heading)" />
+    <param name="weight_speed" value="$(arg weight_speed)" />
+    <param name="weight_steer" value="$(arg weight_steer)" />
+    <param name="weight_steer_rate" value="$(arg weight_steer_rate)" />
+    <param name="weight_steer_accel" value="$(arg weight_steer_accel)" />
+    <param name="weight_accel" value="$(arg weight_accel)" />
+    <param name="weight_jerk" value="$(arg weight_jerk)" />
+    <param name="weight_cte_speed" value="$(arg weight_cte_speed)" />
+    <param name="terminal_weight" value="$(arg terminal_weight)" />
+    <param name="weight_speed_profile_slack" value="$(arg weight_speed_profile_slack)" />
+
+    <param name="measurement_noise" value="$(arg measurement_noise)" />
+    <param name="process_noise" value="$(arg process_noise)" />
+  </node>
+
+  <group if="$(arg enable_lap_tuner)">
+    <node pkg="control" type="mpc_lap_tuner.py" name="mpc_lap_tuner" output="screen">
+      <param name="odom_topic" value="$(arg lap_tuner_odom_topic)" />
+      <param name="global_path_topic" value="$(arg lap_tuner_global_path_topic)" />
+      <param name="mpc_param_namespace" value="$(arg lap_tuner_mpc_param_namespace)" />
+      <param name="min_lap_time_s" value="$(arg lap_tuner_min_lap_time_s)" />
+      <param name="min_samples_per_lap" value="$(arg lap_tuner_min_samples_per_lap)" />
+      <param name="initial_wait_laps" value="$(arg lap_tuner_initial_wait_laps)" />
+      <param name="loss_cte_weight" value="$(arg lap_tuner_loss_cte_weight)" />
+      <param name="loss_heading_deg_weight" value="$(arg lap_tuner_loss_heading_deg_weight)" />
+      <param name="loss_penalty_weight" value="$(arg lap_tuner_loss_penalty_weight)" />
+      <param name="loss_curve_cte_weight" value="$(arg lap_tuner_loss_curve_cte_weight)" />
+      <param name="loss_sharp_curve_cte_weight" value="$(arg lap_tuner_loss_sharp_curve_cte_weight)" />
+      <param name="loss_cte_p95_weight" value="$(arg lap_tuner_loss_cte_p95_weight)" />
+      <param name="loss_cte_max_weight" value="$(arg lap_tuner_loss_cte_max_weight)" />
+      <param name="loss_curve_cte_p95_weight" value="$(arg lap_tuner_loss_curve_cte_p95_weight)" />
+      <param name="loss_sharp_curve_cte_p95_weight" value="$(arg lap_tuner_loss_sharp_curve_cte_p95_weight)" />
+      <param name="loss_sharp_curve_cte_max_weight" value="$(arg lap_tuner_loss_sharp_curve_cte_max_weight)" />
+      <param name="loss_left_right_balance_weight" value="$(arg lap_tuner_loss_left_right_balance_weight)" />
+      <param name="loss_curve_bias_weight" value="$(arg lap_tuner_loss_curve_bias_weight)" />
+      <param name="curve_error_curvature_min" value="$(arg lap_tuner_curve_error_curvature_min)" />
+      <param name="sharp_curve_curvature_min" value="$(arg lap_tuner_sharp_curve_curvature_min)" />
+      <param name="min_segment_samples" value="$(arg lap_tuner_min_segment_samples)" />
+      <param name="max_log_step" value="$(arg lap_tuner_max_log_step)" />
+      <param name="state_file" value="$(arg lap_tuner_state_file)" />
+      <param name="restore_state" value="$(arg lap_tuner_restore_state)" />
+      <param name="debug_publish_hz" value="$(arg lap_tuner_debug_publish_hz)" />
+      <param name="summary_jsonl_file" value="$(arg lap_tuner_summary_jsonl_file)" />
+      <param name="summary_csv_file" value="$(arg lap_tuner_summary_csv_file)" />
+      <param name="summary_svg_file" value="$(arg lap_tuner_summary_svg_file)" />
+      <param name="best_txt_file" value="$(arg lap_tuner_best_txt_file)" />
+      <param name="graph_max_laps" value="$(arg lap_tuner_graph_max_laps)" />
+      <rosparam param="graph_param_names">[
+        steer_model_gain_per_curvature,
+        weight_cte,
+        weight_heading,
+        weight_steer_rate,
+        preview_time_s,
+        curvature_smoothing_window_m,
+        curve_speed_safety_factor,
+        high_speed_max_steer_rate_degps
+      ]</rosparam>
+      <rosparam param="tunable_params">
+        - name: steer_model_gain_straight
+          min: 0.70
+          max: 1.30
+          learning_rate: 0.04
+          perturbation: 0.04
+        - name: steer_model_gain_per_curvature
+          min: 0.10
+          max: 30.0
+          learning_rate: 0.16
+          perturbation: 0.07
+        - name: weight_heading
+          min: 2.0
+          max: 300.0
+          learning_rate: 0.10
+          perturbation: 0.06
+        - name: weight_cte
+          min: 20.0
+          max: 800.0
+          learning_rate: 0.09
+          perturbation: 0.05
+        - name: weight_speed
+          min: 2.0
+          max: 120.0
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: weight_steer
+          min: 0.02
+          max: 3.0
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: weight_steer_rate
+          min: 2.0
+          max: 120.0
+          learning_rate: 0.07
+          perturbation: 0.05
+        - name: weight_steer_accel
+          min: 5.0
+          max: 300.0
+          learning_rate: 0.07
+          perturbation: 0.05
+        - name: weight_accel
+          min: 0.01
+          max: 5.0
+          learning_rate: 0.04
+          perturbation: 0.05
+        - name: weight_jerk
+          min: 0.05
+          max: 20.0
+          learning_rate: 0.04
+          perturbation: 0.05
+        - name: weight_cte_speed
+          min: 0.10
+          max: 30.0
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: terminal_weight
+          min: 2.0
+          max: 120.0
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: weight_speed_profile_slack
+          min: 1000.0
+          max: 80000.0
+          learning_rate: 0.03
+          perturbation: 0.04
+        - name: preview_time_s
+          min: 0.60
+          max: 2.40
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: preview_min_distance_m
+          min: 2.0
+          max: 10.0
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: preview_max_distance_m
+          min: 10.0
+          max: 35.0
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: path_resolution_min
+          min: 0.20
+          max: 1.20
+          learning_rate: 0.03
+          perturbation: 0.04
+        - name: curvature_smoothing_window_m
+          min: 0.30
+          max: 3.00
+          learning_rate: 0.05
+          perturbation: 0.05
+        - name: measurement_noise
+          min: 0.004
+          max: 0.080
+          learning_rate: 0.03
+          perturbation: 0.05
+        - name: process_noise
+          min: 0.001
+          max: 0.030
+          learning_rate: 0.03
+          perturbation: 0.05
+        - name: curve_speed_safety_factor
+          min: 0.65
+          max: 1.00
+          learning_rate: 0.04
+          perturbation: 0.04
+        - name: minimum_curve_speed_kph
+          min: 2.0
+          max: 12.0
+          learning_rate: 0.03
+          perturbation: 0.04
+        - name: decision_slow_down_speed_kph
+          min: 10.0
+          max: 35.0
+          learning_rate: 0.03
+          perturbation: 0.04
+        - name: speed_profile_tolerance_kph
+          min: 0.001
+          max: 4.0
+          learning_rate: 0.03
+          perturbation: 0.04
+        - name: low_speed_max_steer_rate_degps
+          min: 35.0
+          max: 85.0
+          learning_rate: 0.04
+          perturbation: 0.04
+        - name: high_speed_max_steer_rate_degps
+          min: 10.0
+          max: 30.0
+          learning_rate: 0.04
+          perturbation: 0.04
+        - name: low_speed_steering_time_constant
+          min: 0.20
+          max: 0.55
+          learning_rate: 0.04
+          perturbation: 0.04
+        - name: high_speed_steering_time_constant
+          min: 0.65
+          max: 1.45
+          learning_rate: 0.04
+          perturbation: 0.04
+      </rosparam>
+    </node>
+  </group>
+</launch>
