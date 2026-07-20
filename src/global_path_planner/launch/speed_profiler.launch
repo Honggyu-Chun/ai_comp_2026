@@ -8,7 +8,7 @@
   <arg name="input_topic"    default="/selected_path" />          <!-- 입력 경로(회피 반영, base_link) -->
   <arg name="output_topic"   default="/selected_path_profiled" /> <!-- 출력: z=목표속도[kph] -->
   <arg name="obstacle_topic" default="/obstacle_info" />          <!-- ADAS 추종/정지용 장애물 -->
-  <arg name="ego_topic"      default="/Ego_topic" />              <!-- 자차 속도(EgoVehicleStatus) -->
+  <arg name="ego_topic"      default="/odometry/filtered" />      <!-- 자차 속도(nav_msgs/Odometry, EKF UTM) -->
   <arg name="obstacle_timeout" default="0.5" />                   <!-- 장애물 stale[s] 넘으면 무시 -->
   <arg name="ego_timeout"      default="0.5" />                   <!-- 자차속도 stale[s] 넘으면 0으로 -->
   <arg name="publish_markers"    default="true" />                <!-- RViz 속도 시각화(/speed_profile_markers) -->

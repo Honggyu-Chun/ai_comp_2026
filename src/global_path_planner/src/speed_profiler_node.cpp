@@ -2,16 +2,16 @@
 // 판단 속도 프로파일 ROS 어댑터.
 //   Sub: /selected_path (nav_msgs/Path, base_link) — 입력 경로(회피 반영된 최종 경로)
 //        /obstacle_info (katri_msgs/ObstacleInfoArray) — ADAS 추종/정지 (Phase2)
-//        /Ego_topic     (morai_msgs/EgoVehicleStatus)  — 자차 속도 (Phase2)
+//        /odometry/filtered (nav_msgs/Odometry, EKF UTM) — 자차 속도 (Phase2)
 //   Pub: /selected_path_profiled (nav_msgs/Path) — 입력 경로 복사 + pose.position.z = 목표속도[kph]
 // 속도 프로파일 계산은 순수 코어 gpp::SpeedProfiler 가 담당.
 
 #include <ros/ros.h>
 #include <nav_msgs/Path.h>
+#include <nav_msgs/Odometry.h>
 #include <std_msgs/Float64.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <katri_msgs/ObstacleInfoArray.h>
-#include <morai_msgs/EgoVehicleStatus.h>
 
 #include <algorithm>
 #include <cmath>
@@ -29,7 +29,7 @@ class SpeedProfilerNode {
     pnh_.param<std::string>("input_topic", input_topic_, "/selected_path");
     pnh_.param<std::string>("output_topic", output_topic_, "/selected_path_profiled");
     pnh_.param<std::string>("obstacle_topic", obstacle_topic_, "/obstacle_info");
-    pnh_.param<std::string>("ego_topic", ego_topic_, "/Ego_topic");
+    pnh_.param<std::string>("ego_topic", ego_topic_, "/odometry/filtered");
     pnh_.param<double>("obstacle_timeout", obstacle_timeout_, 0.5);
     pnh_.param<double>("ego_timeout", ego_timeout_, 0.5);
     pnh_.param<bool>("publish_markers", publish_markers_, true);
@@ -101,9 +101,9 @@ class SpeedProfilerNode {
     std::lock_guard<std::mutex> lk(mtx_);
     rotary_cap_ = msg->data; rotary_cap_time_ = ros::Time::now(); has_rotary_cap_ = true;
   }
-  void egoCb(const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
+  void egoCb(const nav_msgs::Odometry::ConstPtr& msg) {
     std::lock_guard<std::mutex> lk(mtx_);
-    ego_speed_mps_ = std::hypot(msg->velocity.x, msg->velocity.y);
+    ego_speed_mps_ = std::abs(msg->twist.twist.linear.x);  // 전방속도[m/s] (base_link)
     last_ego_time_ = ros::Time::now();
     has_ego_ = true;
   }
