@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+  <!-- MORAI UDP inputs. Destination ports are the local ports this bridge binds. -->
+  <arg name="bind_ip" default="0.0.0.0" />
+  <!-- Ports come from the simulator's ego_2026_kcity network profile and
+       SensorInfo_2023_Hyundai_Ioniq5 sensor profile: ego status 9011->9012,
+       GPS 11111->11112, IMU 11113->11114. -->
+  <arg name="status_bind_port" default="9012" />
+  <arg name="gps_bind_port" default="11112" />
+  <arg name="imu_bind_port" default="11114" />
+  <arg name="status_source_port" default="9011" />
+  <arg name="gps_source_port" default="11111" />
+  <arg name="imu_source_port" default="11113" />
+  <arg name="validate_source_port" default="false" />
+  <arg name="strict_packet_markers" default="true" />
+  <arg name="strict_data_length" default="false" />
+
+  <!-- ROS output -->
+  <arg name="frame_id" default="map" />
+  <arg name="gps_frame_id" default="gps" />
+  <arg name="imu_frame_id" default="imu" />
+  <arg name="gps_topic" default="/gps" />
+  <arg name="imu_topic" default="/imu/data" />
+  <arg name="heading_topic" default="/heading" />
+  <arg name="current_speed_topic" default="/current_speed" />
+  <arg name="signed_speed_topic" default="/vehicle/signed_speed" />
+  <arg name="velocity_topic" default="/vehicle/velocity" />
+  <arg name="angular_velocity_topic" default="/vehicle/angular_velocity" />
+  <arg name="acceleration_topic" default="/vehicle/acceleration" />
+  <arg name="front_steer_topic" default="/vehicle/front_steer_angle" />
+  <arg name="rear_steer_topic" default="/vehicle/rear_steer_angle" />
+  <arg name="accel_topic" default="/vehicle/accel" />
+  <arg name="brake_topic" default="/vehicle/brake" />
+  <arg name="gear_topic" default="/vehicle/gear" />
+  <arg name="control_mode_topic" default="/vehicle/control_mode" />
+  <arg name="status_valid_topic" default="/vehicle/status_valid" />
+  <arg name="gps_status_valid_topic" default="/gps/status_valid" />
+  <arg name="imu_status_valid_topic" default="/imu/status_valid" />
+  <arg name="vehicle_timeout" default="0.5" />
+  <arg name="gps_timeout" default="1.0" />
+  <arg name="imu_timeout" default="0.5" />
+  <arg name="queue_size" default="1" />
+
+  <node name="competition_morai_udp_bridge" pkg="competition_vehicle_interface" type="competition_morai_udp_bridge.py" output="screen" respawn="true">
+    <param name="bind_ip" value="$(arg bind_ip)" type="str" />
+    <param name="status_bind_port" value="$(arg status_bind_port)" type="int" />
+    <param name="gps_bind_port" value="$(arg gps_bind_port)" type="int" />
+    <param name="imu_bind_port" value="$(arg imu_bind_port)" type="int" />
+    <param name="status_source_port" value="$(arg status_source_port)" type="int" />
+    <param name="gps_source_port" value="$(arg gps_source_port)" type="int" />
+    <param name="imu_source_port" value="$(arg imu_source_port)" type="int" />
+    <param name="validate_source_port" value="$(arg validate_source_port)" type="bool" />
+    <param name="strict_packet_markers" value="$(arg strict_packet_markers)" type="bool" />
+    <param name="strict_data_length" value="$(arg strict_data_length)" type="bool" />
+    <param name="frame_id" value="$(arg frame_id)" type="str" />
+    <param name="gps_frame_id" value="$(arg gps_frame_id)" type="str" />
+    <param name="imu_frame_id" value="$(arg imu_frame_id)" type="str" />
+    <param name="gps_topic" value="$(arg gps_topic)" type="str" />
+    <param name="imu_topic" value="$(arg imu_topic)" type="str" />
+    <param name="heading_topic" value="$(arg heading_topic)" type="str" />
+    <param name="current_speed_topic" value="$(arg current_speed_topic)" type="str" />
+    <param name="signed_speed_topic" value="$(arg signed_speed_topic)" type="str" />
+    <param name="velocity_topic" value="$(arg velocity_topic)" type="str" />
+    <param name="angular_velocity_topic" value="$(arg angular_velocity_topic)" type="str" />
+    <param name="acceleration_topic" value="$(arg acceleration_topic)" type="str" />
+    <param name="front_steer_topic" value="$(arg front_steer_topic)" type="str" />
+    <param name="rear_steer_topic" value="$(arg rear_steer_topic)" type="str" />
+    <param name="accel_topic" value="$(arg accel_topic)" type="str" />
+    <param name="brake_topic" value="$(arg brake_topic)" type="str" />
+    <param name="gear_topic" value="$(arg gear_topic)" type="str" />
+    <param name="control_mode_topic" value="$(arg control_mode_topic)" type="str" />
+    <param name="status_valid_topic" value="$(arg status_valid_topic)" type="str" />
+    <param name="gps_status_valid_topic" value="$(arg gps_status_valid_topic)" type="str" />
+    <param name="imu_status_valid_topic" value="$(arg imu_status_valid_topic)" type="str" />
+    <param name="vehicle_timeout" value="$(arg vehicle_timeout)" type="double" />
+    <param name="gps_timeout" value="$(arg gps_timeout)" type="double" />
+    <param name="imu_timeout" value="$(arg imu_timeout)" type="double" />
+    <param name="queue_size" value="$(arg queue_size)" type="int" />
+  </node>
+</launch>
