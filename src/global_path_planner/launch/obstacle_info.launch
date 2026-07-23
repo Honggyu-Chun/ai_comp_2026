@@ -1,5 +1,27 @@
 <launch>
-  <!-- /Object_topic + /Ego_topic → /obstacle_info (base_link 상대좌표) -->
+  <!-- MORAI ObjectInfo UDP(기본 7505) 직접 수신 + ego(/odometry/filtered) → /obstacle_info (base_link) -->
+  <arg name="udp_ip" default="127.0.0.1" />
+  <arg name="udp_port" default="7505" />
+  <arg name="ego_topic" default="/odometry/filtered" />
+  <arg name="frame_id" default="base_link" />
+  <arg name="publish_rate_hz" default="30.0" />
+  <arg name="ego_timeout" default="0.5" />
+  <!-- velocity 단위: 기본 km/h→m/s. 움직이는 NPC로 실측 후 필요 시 1.0(m/s)로 조정. -->
+  <arg name="velocity_scale" default="0.2777777778" />
+  <!-- objType 규약: 0=보행자, 1=차량, 2=정적장애물. ego_objtype=-1 이면 필터 비활성. -->
+  <arg name="pedestrian_objtype" default="0" />
+  <arg name="ego_objtype" default="-1" />
+
   <node name="obstacle_info_publisher" pkg="global_path_planner"
-        type="obstacle_info_publisher" output="screen" respawn="true" />
+        type="obstacle_info_publisher" output="screen" respawn="true">
+    <param name="udp_ip" value="$(arg udp_ip)" type="str" />
+    <param name="udp_port" value="$(arg udp_port)" type="int" />
+    <param name="ego_topic" value="$(arg ego_topic)" type="str" />
+    <param name="frame_id" value="$(arg frame_id)" type="str" />
+    <param name="publish_rate_hz" value="$(arg publish_rate_hz)" type="double" />
+    <param name="ego_timeout" value="$(arg ego_timeout)" type="double" />
+    <param name="velocity_scale" value="$(arg velocity_scale)" type="double" />
+    <param name="pedestrian_objtype" value="$(arg pedestrian_objtype)" type="int" />
+    <param name="ego_objtype" value="$(arg ego_objtype)" type="int" />
+  </node>
 </launch>
