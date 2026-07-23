@@ -10,7 +10,6 @@
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/TwistWithCovarianceStamped.h>
 #include <morai_msgs/CtrlCmd.h>
-#include <morai_msgs/EgoVehicleStatus.h>
 #include <nav_msgs/Odometry.h>
 #include <osqp/osqp.h>
 #include <nav_msgs/Path.h>
@@ -205,6 +204,7 @@ private:
 
     ros::Subscriber gps_sub_;
     ros::Subscriber ego_vehicle_sub_;
+    ros::Subscriber steer_feedback_sub_;
     ros::Subscriber local_path_sub_;
     ros::Subscriber map_state_sub_;
     ros::Subscriber car_state_sub_;
@@ -230,7 +230,8 @@ private:
     std::string map_state_topic_;
     std::string car_state_topic_;
     std::string real_velocity_topic_;
-    std::string morai_ego_topic_;
+    std::string morai_speed_topic_;
+    std::string morai_steer_feedback_topic_;
     std::string cmd_vel_topic_;
     std::string ctrl_cmd_topic_;
     std::string lap_tuner_debug_topic_;
@@ -318,7 +319,8 @@ private:
     std::vector<double> warm_accel_;
     void gpsCallback(const nav_msgs::Odometry::ConstPtr& msg);
     void egoVehicleRealCallback(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg);
-    void egoVehicleMoraiCallback(const morai_msgs::EgoVehicleStatus::ConstPtr& msg);
+    void speedMoraiCallback(const std_msgs::Float64::ConstPtr& msg);
+    void steerFeedbackMoraiCallback(const std_msgs::Float64::ConstPtr& msg);
     void localPathCallback(const nav_msgs::Path::ConstPtr& msg);
     void mapStateCallback(const std_msgs::String::ConstPtr& msg);
     void carStateCallback(const std_msgs::String::ConstPtr& msg);
@@ -361,7 +363,7 @@ FullMpcControl::FullMpcControl()
       enforce_speed_profile_(true),
       show_lap_tuner_debug_(true),
       mode_("morai"),
-      morai_steer_feedback_unit_("deg"),
+      morai_steer_feedback_unit_("rad"),
       lap_tuner_debug_topic_("/mpc_lap_tuner/debug_text"),
       map_state_("go"),
       car_state_("fast"),
@@ -445,18 +447,19 @@ FullMpcControl::FullMpcControl()
     nh_.param<std::string>("map_state_topic", map_state_topic_, std::string("/state"));
     nh_.param<std::string>("car_state_topic", car_state_topic_, std::string("/moving_obs"));
     nh_.param<std::string>("real_velocity_topic", real_velocity_topic_, std::string("/gps_data/fix_velocity"));
-    nh_.param<std::string>("morai_ego_topic", morai_ego_topic_, std::string("/morai/ego_topic"));
+    // competition UDP bridge 토픽. /morai/ego_topic(EgoVehicleStatus) 은 더 이상 발행되지 않는다.
+    nh_.param<std::string>("morai_speed_topic", morai_speed_topic_, std::string("/current_speed"));
+    nh_.param<std::string>("morai_steer_feedback_topic", morai_steer_feedback_topic_, std::string("/vehicle/front_steer_angle"));
     nh_.param<std::string>("cmd_vel_topic", cmd_vel_topic_, std::string("/cmd_vel"));
     nh_.param<std::string>("ctrl_cmd_topic", ctrl_cmd_topic_, std::string("/ctrl_cmd"));
     nh_.param("show_lap_tuner_debug", show_lap_tuner_debug_, true);
     nh_.param<std::string>("lap_tuner_debug_topic", lap_tuner_debug_topic_, std::string("/mpc_lap_tuner/debug_text"));
-    // This MORAI bridge reports the speed magnitude in the same scale as the MORAI UI.
-    // Keep 1.0 unless the bridge is changed to publish m/s.
+    // /current_speed 는 이미 m/s. 이 값은 속도 단위 보정용 배율(기본 1.0 = 그대로).
     nh_.param("morai_velocity_to_kph_scale", morai_velocity_to_kph_scale_, 1.0);
     nh_.param("morai_longitudinal_cmd_type", morai_longitudinal_cmd_type_, 1);
     morai_longitudinal_cmd_type_ = static_cast<int>(clampValue(morai_longitudinal_cmd_type_, 1, 3));
     nh_.param("use_morai_steer_feedback", use_morai_steer_feedback_, true);
-    nh_.param<std::string>("morai_steer_feedback_unit", morai_steer_feedback_unit_, std::string("deg"));
+    nh_.param<std::string>("morai_steer_feedback_unit", morai_steer_feedback_unit_, std::string("rad"));
     nh_.param("morai_steer_feedback_sign", morai_steer_feedback_sign_, 1.0);
     nh_.param("control_frequency", control_frequency_, 50);
     control_frequency_ = std::max(5, control_frequency_);
@@ -561,7 +564,11 @@ FullMpcControl::FullMpcControl()
     }
 
     if (use_morai_sim_) {
-        ego_vehicle_sub_ = nh_.subscribe(morai_ego_topic_, 1, &FullMpcControl::egoVehicleMoraiCallback, this);
+        ego_vehicle_sub_ = nh_.subscribe(morai_speed_topic_, 1, &FullMpcControl::speedMoraiCallback, this);
+        if (use_morai_steer_feedback_) {
+            steer_feedback_sub_ = nh_.subscribe(morai_steer_feedback_topic_, 1,
+                                                &FullMpcControl::steerFeedbackMoraiCallback, this);
+        }
         ctrl_cmd_pub_ = nh_.advertise<morai_msgs::CtrlCmd>(ctrl_cmd_topic_, 1);
         ctrl_cmd_msg_ = morai_msgs::CtrlCmd();
         ctrl_cmd_msg_.longlCmdType = morai_longitudinal_cmd_type_;
@@ -619,26 +626,24 @@ void FullMpcControl::egoVehicleRealCallback(const geometry_msgs::TwistWithCovari
     current_speed_kph_ = current_speed_mps_ * 3.6;
 }
 
-void FullMpcControl::egoVehicleMoraiCallback(const morai_msgs::EgoVehicleStatus::ConstPtr& msg)
+void FullMpcControl::speedMoraiCallback(const std_msgs::Float64::ConstPtr& msg)
 {
     vehicle_info_ = true;
+    // /current_speed = |ego 속도| [m/s] (competition UDP bridge). scale 은 단위 보정용(기본 1.0).
+    current_speed_mps_ = std::max(0.0, msg->data * morai_velocity_to_kph_scale_);
+    current_speed_kph_ = current_speed_mps_ * 3.6;
+}
 
-    // morai_velocity_to_kph_scale_ is kept as a parameter for bridge-specific units.
-    // The current UDP bridge speed magnitude matches the MORAI UI, so the launch default is 1.0.
-    const double raw_speed = std::hypot(msg->velocity.x, msg->velocity.y);
-    current_speed_kph_ = std::max(0.0, raw_speed * morai_velocity_to_kph_scale_);
-    current_speed_mps_ = current_speed_kph_ / 3.6;
-
-    if (use_morai_steer_feedback_) {
-        double steer_feedback = morai_steer_feedback_sign_ *
-                                static_cast<double>(msg->wheel_angle);
-        if (morai_steer_feedback_unit_ == "deg" ||
-            morai_steer_feedback_unit_ == "degree" ||
-            morai_steer_feedback_unit_ == "degrees") {
-            steer_feedback *= kPi / 180.0;
-        }
-        estimated_steer_ = clampValue(steer_feedback, -max_steer_rad_, max_steer_rad_);
+void FullMpcControl::steerFeedbackMoraiCallback(const std_msgs::Float64::ConstPtr& msg)
+{
+    // /vehicle/front_steer_angle = 앞바퀴 조향각 [rad] (bridge). unit=="deg" 면 도→라디안 변환.
+    double steer_feedback = morai_steer_feedback_sign_ * msg->data;
+    if (morai_steer_feedback_unit_ == "deg" ||
+        morai_steer_feedback_unit_ == "degree" ||
+        morai_steer_feedback_unit_ == "degrees") {
+        steer_feedback *= kPi / 180.0;
     }
+    estimated_steer_ = clampValue(steer_feedback, -max_steer_rad_, max_steer_rad_);
 }
 
 void FullMpcControl::localPathCallback(const nav_msgs::Path::ConstPtr& msg)
