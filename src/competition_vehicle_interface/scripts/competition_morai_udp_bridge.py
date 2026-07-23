@@ -127,8 +127,7 @@ class UdpEgoVehicleStatus26(PackedStruct):
     ]
 
 
-# 대회 패킷 "#MoraiInfo$" (181 B). EgoVehicleStatus24 에서 마지막 tire force /
-# side slip angle / cornering stiffness 12필드를 뺀 형태 (link_id 로 끝남).
+# competition vehicle status로 맞추기 위해 추가한 class
 class UdpMoraiInfo(PackedStruct):
     _fields_ = UdpEgoVehicleStatus24._fields_[:-13] + [("tail", ctypes.c_char * 2)]
 

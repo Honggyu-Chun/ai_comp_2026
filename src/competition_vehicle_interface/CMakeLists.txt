@@ -19,6 +19,7 @@ catkin_package(
 )
 
 catkin_install_python(PROGRAMS
+  scripts/competition_control_udp_bridge.py
   scripts/competition_morai_udp_bridge.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

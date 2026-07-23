@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+  <!-- MORAI EgoCtrlCmd UDP output. Set target_port to MORAI's Destination PORT for CtrlCmd. -->
+  <arg name="cmd_topic" default="/ctrl_cmd" />
+  <arg name="target_ip" default="127.0.0.1" />
+  <arg name="target_port" default="9093" />
+  <arg name="hz" default="30.0" />
+  <arg name="ctrl_mode" default="2" />
+  <arg name="gear" default="4" />
+  <arg name="default_cmd_type" default="2" />
+  <arg name="send_without_cmd" default="false" />
+
+  <node name="competition_control_udp_bridge" pkg="competition_vehicle_interface" type="competition_control_udp_bridge.py" output="screen" respawn="true">
+    <param name="cmd_topic" value="$(arg cmd_topic)" type="str" />
+    <param name="target_ip" value="$(arg target_ip)" type="str" />
+    <param name="target_port" value="$(arg target_port)" type="int" />
+    <param name="hz" value="$(arg hz)" type="double" />
+    <param name="ctrl_mode" value="$(arg ctrl_mode)" type="int" />
+    <param name="gear" value="$(arg gear)" type="int" />
+    <param name="default_cmd_type" value="$(arg default_cmd_type)" type="int" />
+    <param name="send_without_cmd" value="$(arg send_without_cmd)" type="bool" />
+  </node>
+</launch>

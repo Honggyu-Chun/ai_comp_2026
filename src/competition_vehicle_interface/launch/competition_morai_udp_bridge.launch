@@ -2,9 +2,6 @@
 <launch>
   <!-- MORAI UDP inputs. Destination ports are the local ports this bridge binds. -->
   <arg name="bind_ip" default="0.0.0.0" />
-  <!-- Ports come from the simulator's ego_2026_kcity network profile and
-       SensorInfo_2023_Hyundai_Ioniq5 sensor profile: ego status 9011->9012,
-       GPS 11111->11112, IMU 11113->11114. -->
   <arg name="status_bind_port" default="9012" />
   <arg name="gps_bind_port" default="11112" />
   <arg name="imu_bind_port" default="11114" />
