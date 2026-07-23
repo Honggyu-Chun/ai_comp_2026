@@ -38,7 +38,7 @@
   <!-- 첫 번째 전역 경로 퍼블리셔의 파일과 토픽 파라미터를 설정하며 republish_hz는 호환용으로만 남긴다. -->
   <arg name="global_path1_package_name" default="global_path_planner" />
   <arg name="global_path1_folder_name" default="path_data" />
-  <arg name="global_path1_file_name" default="comp_v3" />
+  <arg name="global_path1_file_name" default="comp_v2_1_sm" />
   <arg name="global_path1_topic_name" default="/global_path1" />
   <arg name="global_path1_frame_id" default="map" />
   <arg name="global_path1_debug" default="true" />
@@ -48,7 +48,7 @@
   <!-- 두 번째 전역 경로 퍼블리셔의 파일과 토픽 파라미터를 설정하며 republish_hz는 호환용으로만 남긴다. -->
   <arg name="global_path2_package_name" default="global_path_planner" />
   <arg name="global_path2_folder_name" default="path_data" />
-  <arg name="global_path2_file_name" default="comp_v3" />
+  <arg name="global_path2_file_name" default="comp_v2_1_sm" />
   <arg name="global_path2_topic_name" default="/global_path2" />
   <arg name="global_path2_frame_id" default="map" />
   <arg name="global_path2_debug" default="false" />
@@ -239,6 +239,51 @@
     <param name="min_switch_interval_s" value="$(arg odom_path_min_switch_interval_s)" type="double" />
     <param name="better_count_required" value="$(arg odom_path_better_count_required)" type="int" />
   </node>
-  <node name="local_path_selector" pkg="global_path_planner" type="local_path_selector" respawn="true" output="screen" />
+  <!-- local_path_selector 튜닝 파라미터 (기본값 = 노드 기본값과 동일 → 미설정 시 동작 불변). -->
+  <arg name="lps_objects_topic" default="/obstacle_path_info" />
+  <arg name="lps_lane_path_topic" default="/lane_path" />
+  <arg name="lps_state_topic" default="/state" />
+  <arg name="lps_sign_state_topic" default="/sign_state" />
+  <arg name="lps_selected_path_topic" default="/selected_path" />
+  <arg name="lps_moving_obs_topic" default="/moving_obs" />
+  <arg name="lps_avoid_path_topic" default="/avoid_path" />
+  <arg name="lps_avoid_active_topic" default="/avoid_active" />
+  <arg name="lps_obs_dist_threshold" default="20.0" />
+  <arg name="lps_slow_down_dist" default="16.0" />
+  <arg name="lps_stop_dist" default="9.0" />
+  <arg name="lps_rate_hz" default="20.0" />
+  <arg name="lps_lane_change_interpolate_length" default="2.0" />
+  <arg name="lps_lane_change_interpolate_points" default="10" />
+  <arg name="lps_subscribe_queue_size" default="10" />
+  <arg name="lps_publish_queue_size" default="1" />
+  <arg name="lps_debug_print" default="true" />
+  <arg name="lps_use_avoid_path" default="true" />
+  <arg name="lps_avoid_timeout" default="0.5" />
+
+  <node name="local_path_selector" pkg="global_path_planner" type="local_path_selector" respawn="true" output="screen">
+    <!-- 입력 경로 토픽은 odom_path_publisher 출력에 그대로 묶는다. -->
+    <param name="local_path1_topic" value="$(arg odom_path_local_path1_topic)" type="str" />
+    <param name="local_path2_topic" value="$(arg odom_path_local_path2_topic)" type="str" />
+    <param name="current_path_topic" value="$(arg odom_path_current_path_topic)" type="str" />
+    <param name="lane_path_topic" value="$(arg lps_lane_path_topic)" type="str" />
+    <param name="objects_topic" value="$(arg lps_objects_topic)" type="str" />
+    <param name="state_topic" value="$(arg lps_state_topic)" type="str" />
+    <param name="sign_state_topic" value="$(arg lps_sign_state_topic)" type="str" />
+    <param name="selected_path_topic" value="$(arg lps_selected_path_topic)" type="str" />
+    <param name="moving_obs_topic" value="$(arg lps_moving_obs_topic)" type="str" />
+    <param name="avoid_path_topic" value="$(arg lps_avoid_path_topic)" type="str" />
+    <param name="avoid_active_topic" value="$(arg lps_avoid_active_topic)" type="str" />
+    <param name="obs_dist_threshold" value="$(arg lps_obs_dist_threshold)" type="double" />
+    <param name="slow_down_dist" value="$(arg lps_slow_down_dist)" type="double" />
+    <param name="stop_dist" value="$(arg lps_stop_dist)" type="double" />
+    <param name="rate_hz" value="$(arg lps_rate_hz)" type="double" />
+    <param name="lane_change_interpolate_length" value="$(arg lps_lane_change_interpolate_length)" type="double" />
+    <param name="lane_change_interpolate_points" value="$(arg lps_lane_change_interpolate_points)" type="int" />
+    <param name="subscribe_queue_size" value="$(arg lps_subscribe_queue_size)" type="int" />
+    <param name="publish_queue_size" value="$(arg lps_publish_queue_size)" type="int" />
+    <param name="debug_print" value="$(arg lps_debug_print)" type="bool" />
+    <param name="use_avoid_path" value="$(arg lps_use_avoid_path)" type="bool" />
+    <param name="avoid_timeout" value="$(arg lps_avoid_timeout)" type="double" />
+  </node>
   <!-- <node name="region_state_publisher" pkg="global_path_planner"  type="region_state_publisher" respawn="true" args="final" /> -->
 </launch>
