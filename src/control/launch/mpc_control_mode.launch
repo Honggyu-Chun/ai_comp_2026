@@ -13,17 +13,17 @@
 
   <!-- mode-specific topics -->
   <arg name="real_velocity_topic" default="/gps_data/fix_velocity" />
-  <arg name="morai_ego_topic" default="/morai/ego_topic" />
+  <!-- competition UDP bridge 토픽 (구 /morai/ego_topic 대체). -->
+  <arg name="morai_speed_topic" default="/current_speed" />
+  <arg name="morai_steer_feedback_topic" default="/vehicle/front_steer_angle" />
   <arg name="cmd_vel_topic" default="/cmd_vel" />
   <arg name="ctrl_cmd_topic" default="/ctrl_cmd" />
 
-  <!--
-    Current MORAI UDP bridge speed magnitude matches the MORAI UI.
-    Keep this at 1.0 unless the bridge is changed to publish m/s.
-  -->
+  <!-- /current_speed 는 이미 m/s. 단위 보정용 배율(기본 1.0 = 그대로). -->
   <arg name="morai_velocity_to_kph_scale" default="1.0" />
   <arg name="use_morai_steer_feedback" default="true" />
-  <arg name="morai_steer_feedback_unit" default="deg" />
+  <!-- /vehicle/front_steer_angle 는 rad. deg 소스로 바꿀 때만 "deg". -->
+  <arg name="morai_steer_feedback_unit" default="rad" />
   <arg name="morai_steer_feedback_sign" default="1.0" />
 
   <!--
@@ -159,7 +159,8 @@
     <param name="car_state_topic" value="$(arg car_state_topic)" />
 
     <param name="real_velocity_topic" value="$(arg real_velocity_topic)" />
-    <param name="morai_ego_topic" value="$(arg morai_ego_topic)" />
+    <param name="morai_speed_topic" value="$(arg morai_speed_topic)" />
+    <param name="morai_steer_feedback_topic" value="$(arg morai_steer_feedback_topic)" />
     <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)" />
     <param name="ctrl_cmd_topic" value="$(arg ctrl_cmd_topic)" />
     <param name="show_lap_tuner_debug" value="$(arg show_lap_tuner_debug)" />
