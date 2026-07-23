@@ -8,8 +8,9 @@
   <arg name="ego_timeout" default="0.5" />
   <!-- velocity 단위: 기본 km/h→m/s. 움직이는 NPC로 실측 후 필요 시 1.0(m/s)로 조정. -->
   <arg name="velocity_scale" default="0.2777777778" />
-  <arg name="pedestrian_objtype" default="2" />
-  <arg name="ego_objtype" default="0" />
+  <!-- objType 규약: 0=보행자, 1=차량, 2=정적장애물. ego_objtype=-1 이면 필터 비활성. -->
+  <arg name="pedestrian_objtype" default="0" />
+  <arg name="ego_objtype" default="-1" />
 
   <node name="obstacle_info_publisher" pkg="global_path_planner"
         type="obstacle_info_publisher" output="screen" respawn="true">

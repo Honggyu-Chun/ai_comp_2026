@@ -88,8 +88,11 @@ public:
         // MORAI 객체 velocity 단위는 sim 실측으로 확정 필요(움직이는 NPC로 검증).
         // 기본값 1/3.6 = km/h→m/s (구 ObjectStatusList 규약과 동일). m/s 면 1.0 으로.
         pnh.param<double>("velocity_scale", velocity_scale_, 1.0 / 3.6);
-        pnh.param<int>("pedestrian_objtype", pedestrian_objtype_, 2);  // 실측: 정지 0.75m 객체 = objType 2
-        pnh.param<int>("ego_objtype", ego_objtype_, 0);                // 자기 자신은 장애물에서 제외
+        // MORAI ObjectInfo objType 규약(실측): 0=보행자, 1=차량(NPC), 2=정적장애물.
+        pnh.param<int>("pedestrian_objtype", pedestrian_objtype_, 0);
+        // ObjectInfo 에는 자차가 포함되지 않으므로 기본 비활성(-1). objType 로 특정 클래스를
+        // 통째로 빼고 싶을 때만 그 값을 지정한다.
+        pnh.param<int>("ego_objtype", ego_objtype_, -1);
 
         obstacle_pub_ = nh.advertise<katri_msgs::ObstacleInfoArray>("/obstacle_info", 1);
         marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>("/obstacle_markers", 1);
@@ -286,8 +289,8 @@ private:
     double publish_rate_hz_ = 30.0;
     double ego_timeout_ = 0.5;
     double velocity_scale_ = 1.0 / 3.6;
-    int pedestrian_objtype_ = 2;
-    int ego_objtype_ = 0;
+    int pedestrian_objtype_ = 0;
+    int ego_objtype_ = -1;
 
     ros::Subscriber ego_sub_;
     ros::Publisher obstacle_pub_;
