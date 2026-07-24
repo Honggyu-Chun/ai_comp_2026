@@ -26,6 +26,9 @@
   <arg name="acceleration_topic" default="/vehicle/acceleration" />
   <arg name="front_steer_topic" default="/vehicle/front_steer_angle" />
   <arg name="rear_steer_topic" default="/vehicle/rear_steer_angle" />
+  <!-- MORAI 상태 조향 부호는 명령(좌 +, 우 -)과 반대라 -1 로 뒤집어 발행한다.
+       원본 부호 그대로 보려면 1.0 으로. -->
+  <arg name="steer_feedback_sign" default="-1.0" />
   <arg name="accel_topic" default="/vehicle/accel" />
   <arg name="brake_topic" default="/vehicle/brake" />
   <arg name="gear_topic" default="/vehicle/gear" />
@@ -62,6 +65,7 @@
     <param name="acceleration_topic" value="$(arg acceleration_topic)" type="str" />
     <param name="front_steer_topic" value="$(arg front_steer_topic)" type="str" />
     <param name="rear_steer_topic" value="$(arg rear_steer_topic)" type="str" />
+    <param name="steer_feedback_sign" value="$(arg steer_feedback_sign)" type="double" />
     <param name="accel_topic" value="$(arg accel_topic)" type="str" />
     <param name="brake_topic" value="$(arg brake_topic)" type="str" />
     <param name="gear_topic" value="$(arg gear_topic)" type="str" />

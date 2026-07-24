@@ -370,6 +370,9 @@ class CompetitionMoraiUdpBridge:
         self.gps_timeout = float(rospy.get_param("~gps_timeout", 1.0))
         self.imu_timeout = float(rospy.get_param("~imu_timeout", 0.5))
         self.queue_size = int(rospy.get_param("~queue_size", 1))
+        # MORAI 상태 패킷의 조향 부호는 명령 규약(좌 +, 우 -)과 반대로 온다.
+        # -1.0 을 곱해 /vehicle/front_steer_angle 을 명령과 같은 규약으로 맞춘다.
+        self.steer_feedback_sign = float(rospy.get_param("~steer_feedback_sign", -1.0))
 
         self.last_vehicle_rx = None
         self.last_gps_rx = None
@@ -713,8 +716,11 @@ class CompetitionMoraiUdpBridge:
         acceleration.vector.z = parsed.acceleration_z
         self.acceleration_pub.publish(acceleration)
 
-        self.front_steer_pub.publish(Float64(data=math.radians(parsed.front_steer_deg)))
-        self.rear_steer_pub.publish(Float64(data=math.radians(parsed.rear_steer_deg)))
+        # MORAI 상태 조향 부호는 명령 규약과 반대라 steer_feedback_sign(-1)로 뒤집는다.
+        self.front_steer_pub.publish(
+            Float64(data=self.steer_feedback_sign * math.radians(parsed.front_steer_deg)))
+        self.rear_steer_pub.publish(
+            Float64(data=self.steer_feedback_sign * math.radians(parsed.rear_steer_deg)))
         self.accel_pub.publish(Float64(data=parsed.accel))
         self.brake_pub.publish(Float64(data=parsed.brake))
         self.gear_pub.publish(Int8(data=parsed.gear))
