@@ -2,11 +2,17 @@
 # -*- coding: utf-8 -*-
 
 import ctypes
+import math
 import socket
 from threading import Lock
 
 import rospy
 from morai_msgs.msg import CtrlCmd
+
+# EgoCtrlCmd 의 Steer CMD 는 rad 도 deg 도 아닌 정규화 값(-1 ~ 1)이고,
+# -1 / +1 이 각각 최대 조향각 -40deg / +40deg 에 대응한다.
+# /ctrl_cmd.steering 은 rad 이므로 여기서 한 번 변환해서 내보낸다.
+MAX_STEER_RAD = math.radians(40.0)
 
 
 class PackedStruct(ctypes.LittleEndianStructure):
@@ -32,6 +38,12 @@ class UdpEgoCtrlCmd(PackedStruct):
 
 def _get_field(msg, field_name, default):
     return getattr(msg, field_name, default)
+
+
+def _normalize_steer(steering_rad):
+    """조향 rad 를 ±MAX_STEER_RAD 로 자른 뒤 -1 ~ 1 로 정규화한다."""
+    clamped = max(-MAX_STEER_RAD, min(MAX_STEER_RAD, steering_rad))
+    return clamped / MAX_STEER_RAD
 
 
 def _bool_param(param_name, default):
@@ -108,7 +120,7 @@ class CompetitionControlUdpBridge:
         packet.acceleration = float(_get_field(msg, "acceleration", 0.0))
         packet.accel = float(_get_field(msg, "accel", 0.0))
         packet.brake = float(_get_field(msg, "brake", 0.0))
-        packet.steer = float(_get_field(msg, "steering", 0.0))
+        packet.steer = _normalize_steer(float(_get_field(msg, "steering", 0.0)))
         packet.tail = b"\r\n"
         return packet
 
