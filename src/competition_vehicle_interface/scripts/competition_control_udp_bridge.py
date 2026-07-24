@@ -99,6 +99,14 @@ class CompetitionControlUdpBridge:
             self.latest_cmd = msg
             self.has_cmd = True
 
+    def _log_steer(self, steering_rad, normalized):
+        """UDP 로 나가는 조향을 1초에 한 줄 찍는다: 명령 조향(deg/rad) -> 정규화 값."""
+        rospy.loginfo_throttle(
+            1.0,
+            "[steer] cmd %+7.3f deg (%+.5f rad) -> udp %+.6f",
+            math.degrees(steering_rad), steering_rad, normalized,
+        )
+
     def _cmd_type(self, value):
         try:
             cmd_type = int(value)
@@ -136,8 +144,11 @@ class CompetitionControlUdpBridge:
         if not has_cmd and not self.send_without_cmd:
             return
 
+        packet = self._build_packet(msg)
+        self._log_steer(float(_get_field(msg, "steering", 0.0)), packet.steer)
+
         try:
-            self._send_packet(self._build_packet(msg))
+            self._send_packet(packet)
         except OSError as exc:
             rospy.logwarn_throttle(2.0, "[competition_control_udp_bridge] UDP send failed: %s", exc)
 
